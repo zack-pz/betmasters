@@ -12,5 +12,5 @@ jobs:
       - name: Check source branch
         if: github.head_ref != 'development'
         run: |
-          echo "::error::Solo se permiten Pull Requests desde 'development' hacia 'main'."
+          echo "::error::Access Denied: Pull Requests must originate from the 'development' branch."
           exit 1
