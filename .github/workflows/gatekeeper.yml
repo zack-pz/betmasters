@@ -1,0 +1,16 @@
+name: "Branch Gatekeeper"
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  enforce-source:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check source branch
+        if: github.head_ref != 'development'
+        run: |
+          echo "::error::Access Denied: Pull Requests must originate from the 'development' branch."
+          exit 1
