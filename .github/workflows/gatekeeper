@@ -1,15 +1,16 @@
-name: Gatekeeper Main
+name: "Branch Gatekeeper"
 on:
   pull_request:
-    branches:
-      - main # Se activa cuando alguien apunta a main
+    branches: [ "main" ]
 
 jobs:
-  check-source:
+  enforce-source:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - name: Validar rama de origen
+      - name: Check source branch
         if: github.head_ref != 'development'
         run: |
-          echo "ACCESO DENEGADO: Solo se permiten merges desde 'development'."
-          exit 1 # Esto hace que el check falle
+          echo "::error::Solo se permiten Pull Requests desde 'development' hacia 'main'."
+          exit 1
