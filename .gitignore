@@ -2,3 +2,9 @@ docker/config
 
 .env
 !.env.example
+
+rust/**/target
+
+# Added by cargo
+
+/target
