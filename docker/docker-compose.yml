@@ -1,0 +1,31 @@
+services:
+  wireguard:
+    image: lscr.io/linuxserver/wireguard:latest
+    container_name: wireguard
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - SERVERURL=${SERVER_URL}
+      - SERVERPORT=${VPN_PORT}
+      - PEERS=${PEERS}
+      - PEERDNS=${PEERDNS}
+      - INTERNAL_SUBNET=${INTERNAL_SUBNET}
+      - ALLOWEDIPS=${ALLOWEDIPS}
+      - LOG_CONFS=${LOG_CONFS}
+    volumes:
+      - wireguard:/config
+      - /lib/modules:/lib/modules # Fundamental para el acceso al Kernel
+    ports:
+      - ${VPN_PORT}:${VPN_PORT}/udp
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv4.ip_forward=1 # Habilita el ruteo
+    restart: unless-stopped
+
+volumes:
+  wireguard:
+    driver: local
