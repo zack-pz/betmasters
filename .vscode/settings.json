@@ -1,5 +1,4 @@
 {
-    "rust-analyzer.linkedProjects": [
-        "rust/core/Cargo.toml"
-    ]
+    "rust-analyzer.procMacro.enable": true,
+    "rust-analyzer.cargo.buildScripts.enable": true
 }

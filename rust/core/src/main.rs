@@ -1,12 +1,17 @@
+mod coordinator;
+mod logger;
+
+use coordinator::Coordinator;
 use std::process::ExitCode;
 use tokio::signal;
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    logger::init();
+
     match run().await {
         Ok(_) => ExitCode::SUCCESS,
         Err(err) => {
-            // We check if the error is a BrokenPipe error
             let mut current: Option<&(dyn std::error::Error + 'static)> = Some(err.as_ref());
             while let Some(cause) = current {
                 if let Some(ioerr) = cause.downcast_ref::<std::io::Error>() {
@@ -24,15 +29,16 @@ async fn main() -> ExitCode {
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    println!("hello world");
-
-    // Wait for Ctrl+C signal for graceful shutdown
-    match signal::ctrl_c().await {
-        Ok(()) => {
-            println!("\nShutting down gracefully...");
+    let coordinator = Coordinator::new();
+    
+    tokio::select! {
+        res = coordinator.run(8080) => {
+            if let Err(e) = res {
+                eprintln!("Coordinator error: {}", e);
+            }
         }
-        Err(err) => {
-            eprintln!("Error listening to signal: {}", err);
+        _ = signal::ctrl_c() => {
+            println!("\nShutting down gracefully...");
         }
     }
 
