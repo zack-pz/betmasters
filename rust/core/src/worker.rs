@@ -10,7 +10,6 @@ use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
 pub struct Worker<T> {
     coordinator_url: String,
-    pub set_storage: Vec<Vec<f64>>,
     pub x_min: Vec<T>,
     pub x_max: Vec<T>,
     pub y_min: Vec<T>,
@@ -25,7 +24,6 @@ where
     pub fn new(coordinator_url: String) -> Self {
         Self {
             coordinator_url,
-            set_storage: Vec::new(),
             x_min: vec![Self::from_f64(-2.0)],
             x_max: vec![Self::from_f64(1.0)],
             y_min: vec![Self::from_f64(-1.5)],
@@ -68,15 +66,10 @@ where
                                 info!("Starting computation: {}x{}", width, height);
                                 #[cfg(feature = "rayon")]
                                 {
-                                    worker.update_set(width, height);
+                                    let result = worker.update_set(width, height);
                                     
-                                    // Calculate average value as a simple result to show
-                                    let sum: f64 = worker.set_storage.iter().flat_map(|row| row.iter()).sum();
-                                    let count = (width * height) as f64;
-                                    let avg = sum / count;
-                                    
-                                    info!("Computation finished. Sending result: {}", avg);
-                                    let result_msg = WorkerMessage::ComputeResult(avg);
+                                    info!("Computation finished. Sending result ({} rows).", result.len());
+                                    let result_msg = WorkerMessage::ComputeResult(result);
                                     let json = serde_json::to_string(&result_msg)?;
                                     write.send(Message::Text(json.into())).await?;
                                 }
@@ -123,8 +116,8 @@ where
     }
 
     #[cfg(feature = "rayon")]
-    pub fn update_set(&mut self, width: u32, height: u32) {
-        self.set_storage = (0..width)
+    pub fn update_set(&self, width: u32, height: u32) -> Vec<Vec<f64>> {
+        (0..width)
             .into_par_iter()
             .map(|u| {
                 let x: T = Self::remap(
@@ -147,7 +140,7 @@ where
                     })
                     .collect()
             })
-            .collect();
+            .collect()
     }
 
     fn evaluate(x: T, y: T, max_iters: usize) -> f64 {

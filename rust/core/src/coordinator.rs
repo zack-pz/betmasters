@@ -11,7 +11,7 @@ use tokio::sync::mpsc;
 #[derive(Debug, Serialize, Deserialize)]
 pub enum WorkerMessage {
     Hello(String),
-    ComputeResult(f64),
+    ComputeResult(Vec<Vec<f64>>),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -23,17 +23,21 @@ pub enum CoordinatorCommand {
 pub enum InternalMessage {
     WorkerConnected(mpsc::Sender<CoordinatorCommand>),
     WorkerSaidHello(String),
-    WorkerFinished(f64),
+    WorkerFinished(Vec<Vec<f64>>),
 }
 
-pub struct Coordinator {}
+pub struct Coordinator {
+    pub storage: Vec<Vec<Vec<f64>>>,
+}
 
 impl Coordinator {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            storage: Vec::new(),
+        }
     }
 
-    pub async fn run(self, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(mut self, port: u16) -> Result<(), Box<dyn std::error::Error>> {
         let (tx, mut rx) = mpsc::channel::<InternalMessage>(100);
         let app_state = tx.clone();
 
@@ -76,7 +80,9 @@ impl Coordinator {
                     info!("Worker says: {}", greeting);
                 }
                 InternalMessage::WorkerFinished(result) => {
-                    info!("Worker finished computation. Average value: {}", result);
+                    info!("Worker finished computation. Data received: {} rows", result.len());
+                    self.storage.push(result);
+                    info!("Total datasets registered in coordinator: {}", self.storage.len());
                 }
             }
         }
