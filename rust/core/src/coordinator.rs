@@ -5,35 +5,76 @@ use axum::{
 };
 use log::{error, info};
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum CoordinatorCommand {
+    Welcome(String),
+    Compute {
+        task_id: u32,
+        width: u32,
+        height: u32,
+        start_row: u32,
+        end_row: u32,
+    },
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum WorkerMessage {
     Hello(String),
-    ComputeResult(Vec<Vec<f64>>),
+    ComputeResult {
+        task_id: u32,
+        data: Vec<Vec<f64>>,
+    },
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub enum CoordinatorCommand {
-    Welcome(String),
-    Compute { width: u32, height: u32 },
+#[derive(Debug, Clone)]
+struct Task {
+    id: u32,
+    start_row: u32,
+    end_row: u32,
 }
 
 pub enum InternalMessage {
     WorkerConnected(mpsc::Sender<CoordinatorCommand>),
     WorkerSaidHello(String),
-    WorkerFinished(Vec<Vec<f64>>),
+    WorkerFinished {
+        task_id: u32,
+        data: Vec<Vec<f64>>,
+        worker_tx: mpsc::Sender<CoordinatorCommand>,
+    },
 }
 
 pub struct Coordinator {
-    pub storage: Vec<Vec<Vec<f64>>>,
+    pub storage: Vec<Vec<f64>>,
+    width: u32,
+    height: u32,
+    tasks: VecDeque<Task>,
 }
 
 impl Coordinator {
-    pub fn new() -> Self {
+    pub fn new(width: u32, height: u32) -> Self {
+        let block_size = 10;
+        let mut tasks = VecDeque::new();
+        let mut task_id = 0;
+
+        for start_row in (0..height).step_by(block_size as usize) {
+            let end_row = (start_row + block_size).min(height);
+            tasks.push_back(Task {
+                id: task_id,
+                start_row,
+                end_row,
+            });
+            task_id += 1;
+        }
+
         Self {
-            storage: Vec::new(),
+            storage: vec![vec![0.0; height as usize]; width as usize],
+            width,
+            height,
+            tasks,
         }
     }
 
@@ -52,7 +93,7 @@ impl Coordinator {
         let addr = SocketAddr::from(([0, 0, 0, 0], port));
         let listener = tokio::net::TcpListener::bind(addr).await?;
 
-        info!("Coordinator listening on {}", addr);
+        info!("Coordinator listening on {} with {} tasks pending", addr, self.tasks.len());
 
         tokio::spawn(async move {
             if let Err(e) = axum::serve(listener, app).await {
@@ -60,29 +101,52 @@ impl Coordinator {
             }
         });
 
-        // The coordinator waits for the workers to connect.
-        // It is a simple implementation to demonstrate a 'distributed hello world'.
         while let Some(msg) = rx.recv().await {
             match msg {
                 InternalMessage::WorkerConnected(worker_tx) => {
-                    info!("New worker connected. Sending welcome...");
-                    let _ = worker_tx
-                        .send(CoordinatorCommand::Welcome("Hello distributed".to_string()))
-                        .await;
-                    
-                    // Send a test computation task
-                    info!("Sending test compute task (width: 100, height: 100)...");
-                    let _ = worker_tx
-                        .send(CoordinatorCommand::Compute { width: 100, height: 100 })
-                        .await;
+                    info!("New worker connected.");
+                    if let Some(task) = self.tasks.pop_front() {
+                        info!("Assigning task {} (rows {} to {})", task.id, task.start_row, task.end_row);
+                        let _ = worker_tx.send(CoordinatorCommand::Compute {
+                            task_id: task.id,
+                            width: self.width,
+                            height: self.height,
+                            start_row: task.start_row,
+                            end_row: task.end_row,
+                        }).await;
+                    }
                 }
                 InternalMessage::WorkerSaidHello(greeting) => {
                     info!("Worker says: {}", greeting);
                 }
-                InternalMessage::WorkerFinished(result) => {
-                    info!("Worker finished computation. Data received: {} rows", result.len());
-                    self.storage.push(result);
-                    info!("Total datasets registered in coordinator: {}", self.storage.len());
+                InternalMessage::WorkerFinished { task_id, data, worker_tx } => {
+                    let start_row = (task_id * 10) as usize;
+                    
+                    info!("Received result for task {}. Merging data...", task_id);
+                    
+                    for (i, row_data) in data.into_iter().enumerate() {
+                        let target_row = start_row + i;
+                        if target_row < self.height as usize {
+                            for (col, &val) in row_data.iter().enumerate() {
+                                if col < self.width as usize {
+                                    self.storage[col][target_row] = val;
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(task) = self.tasks.pop_front() {
+                        info!("Assigning next task {} to worker", task.id);
+                        let _ = worker_tx.send(CoordinatorCommand::Compute {
+                            task_id: task.id,
+                            width: self.width,
+                            height: self.height,
+                            start_row: task.start_row,
+                            end_row: task.end_row,
+                        }).await;
+                    } else {
+                        info!("No more tasks available for this worker.");
+                    }
                 }
             }
         }
@@ -104,14 +168,12 @@ async fn handle_socket(mut socket: WebSocket, tx: mpsc::Sender<InternalMessage>)
 
     loop {
         tokio::select! {
-            // Implement the communication between the coodinator and worker
             Some(cmd) = worker_rx.recv() => {
                 let json = serde_json::to_string(&cmd).unwrap();
                 if socket.send(Message::Text(json.into())).await.is_err() {
                     break;
                 }
             }
-            // The coordinator awaits worker data
             Some(result) = socket.recv() => {
                 match result {
                     Ok(Message::Text(text)) => {
@@ -120,8 +182,12 @@ async fn handle_socket(mut socket: WebSocket, tx: mpsc::Sender<InternalMessage>)
                                 WorkerMessage::Hello(greeting) => {
                                     let _ = tx.send(InternalMessage::WorkerSaidHello(greeting)).await;
                                 }
-                                WorkerMessage::ComputeResult(result) => {
-                                    let _ = tx.send(InternalMessage::WorkerFinished(result)).await;
+                                WorkerMessage::ComputeResult { task_id, data } => {
+                                    let _ = tx.send(InternalMessage::WorkerFinished { 
+                                        task_id, 
+                                        data, 
+                                        worker_tx: worker_tx.clone() 
+                                    }).await;
                                 }
                             }
                         }

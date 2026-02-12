@@ -51,7 +51,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let task = async move {
         match args.type_ {
             NodeType::Coordinator => {
-                let coordinator = Coordinator::new();
+                let coordinator = Coordinator::new(100, 100);
                 if let Err(e) = coordinator.run(8080).await {
                     eprintln!("Coordinator error: {}", e);
                 }

@@ -48,12 +48,10 @@ where
         let (ws_stream, _) = connect_async(url).await?;
         let (mut write, mut read) = ws_stream.split();
 
-        // Send handshake to coordinator
         let greeting = WorkerMessage::Hello("¡Hello Coordinator!".to_string());
         let json = serde_json::to_string(&greeting)?;
         write.send(Message::Text(json.into())).await?;
 
-        // Worker awaits coordinators commands
         while let Some(msg) = read.next().await {
             match msg {
                 Ok(Message::Text(text)) => {
@@ -62,14 +60,14 @@ where
                             CoordinatorCommand::Welcome(welcome_msg) => {
                                 info!("Sent by coordinator: {}", welcome_msg);
                             }
-                            CoordinatorCommand::Compute { width, height } => {
-                                info!("Starting computation: {}x{}", width, height);
+                            CoordinatorCommand::Compute { task_id, width, height, start_row, end_row } => {
+                                info!("Starting task {}: rows {} to {} (total {}x{})", task_id, start_row, end_row, width, height);
                                 #[cfg(feature = "rayon")]
                                 {
-                                    let result = worker.update_set(width, height);
+                                    let result = worker.compute_block(width, height, start_row, end_row);
                                     
-                                    info!("Computation finished. Sending result ({} rows).", result.len());
-                                    let result_msg = WorkerMessage::ComputeResult(result);
+                                    info!("Task {} finished. Sending result ({} rows).", task_id, result.len());
+                                    let result_msg = WorkerMessage::ComputeResult { task_id, data: result };
                                     let json = serde_json::to_string(&result_msg)?;
                                     write.send(Message::Text(json.into())).await?;
                                 }
@@ -116,27 +114,28 @@ where
     }
 
     #[cfg(feature = "rayon")]
-    pub fn update_set(&self, width: u32, height: u32) -> Vec<Vec<f64>> {
-        (0..width)
+    pub fn compute_block(&self, width: u32, height: u32, start_row: u32, end_row: u32) -> Vec<Vec<f64>> {
+        // We compute row by row for the given range
+        (start_row..end_row)
             .into_par_iter()
-            .map(|u| {
-                let x: T = Self::remap(
-                    Self::from_u32(u),
+            .map(|v| {
+                let y: T = Self::remap(
+                    Self::from_u32(v),
                     Self::from_f64(0.0),
-                    Self::from_u32(width),
-                    self.x_min.last().unwrap().clone(),
-                    self.x_max.last().unwrap().clone(),
+                    Self::from_u32(height),
+                    self.y_min.last().unwrap().clone(),
+                    self.y_max.last().unwrap().clone(),
                 );
-                (0..height)
-                    .map(|v| {
-                        let y: T = Self::remap(
-                            Self::from_u32(v),
+                (0..width)
+                    .map(|u| {
+                        let x: T = Self::remap(
+                            Self::from_u32(u),
                             Self::from_f64(0.0),
-                            Self::from_u32(height),
-                            self.y_min.last().unwrap().clone(),
-                            self.y_max.last().unwrap().clone(),
+                            Self::from_u32(width),
+                            self.x_min.last().unwrap().clone(),
+                            self.x_max.last().unwrap().clone(),
                         );
-                        Self::evaluate(x.clone(), y, self.max_iters)
+                        Self::evaluate(x.clone(), y.clone(), self.max_iters)
                     })
                     .collect()
             })
