@@ -57,7 +57,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             NodeType::Worker => {
-                let worker = Worker::new("ws://127.0.0.1:8080/ws".to_string());
+                let worker = Worker::<f64>::new("ws://127.0.0.1:8080/ws".to_string());
                 if let Err(e) = worker.run().await {
                     eprintln!("Worker error: {}", e);
                 }

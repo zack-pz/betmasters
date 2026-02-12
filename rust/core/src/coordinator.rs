@@ -11,16 +11,19 @@ use tokio::sync::mpsc;
 #[derive(Debug, Serialize, Deserialize)]
 pub enum WorkerMessage {
     Hello(String),
+    ComputeResult(f64),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum CoordinatorCommand {
     Welcome(String),
+    Compute { width: u32, height: u32 },
 }
 
 pub enum InternalMessage {
     WorkerConnected(mpsc::Sender<CoordinatorCommand>),
     WorkerSaidHello(String),
+    WorkerFinished(f64),
 }
 
 pub struct Coordinator {}
@@ -53,8 +56,8 @@ impl Coordinator {
             }
         });
 
-        /// The coordinator waits for the workers to connect.
-        /// It is a simple implementation to demonstrate a 'distributed hello world'.
+        // The coordinator waits for the workers to connect.
+        // It is a simple implementation to demonstrate a 'distributed hello world'.
         while let Some(msg) = rx.recv().await {
             match msg {
                 InternalMessage::WorkerConnected(worker_tx) => {
@@ -62,9 +65,18 @@ impl Coordinator {
                     let _ = worker_tx
                         .send(CoordinatorCommand::Welcome("Hello distributed".to_string()))
                         .await;
+                    
+                    // Send a test computation task
+                    info!("Sending test compute task (width: 100, height: 100)...");
+                    let _ = worker_tx
+                        .send(CoordinatorCommand::Compute { width: 100, height: 100 })
+                        .await;
                 }
                 InternalMessage::WorkerSaidHello(greeting) => {
                     info!("Worker says: {}", greeting);
+                }
+                InternalMessage::WorkerFinished(result) => {
+                    info!("Worker finished computation. Average value: {}", result);
                 }
             }
         }
@@ -101,6 +113,9 @@ async fn handle_socket(mut socket: WebSocket, tx: mpsc::Sender<InternalMessage>)
                             match msg {
                                 WorkerMessage::Hello(greeting) => {
                                     let _ = tx.send(InternalMessage::WorkerSaidHello(greeting)).await;
+                                }
+                                WorkerMessage::ComputeResult(result) => {
+                                    let _ = tx.send(InternalMessage::WorkerFinished(result)).await;
                                 }
                             }
                         }
