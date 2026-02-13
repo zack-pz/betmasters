@@ -1,6 +1,7 @@
 mod coordinator;
 mod logger;
 mod worker;
+mod core;
 
 use clap::{Parser, ValueEnum};
 use coordinator::Coordinator;

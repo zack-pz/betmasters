@@ -8,6 +8,9 @@ use num_traits::Num;
 use rayon::prelude::*;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
+// Aquí puedes agregar submódulos futuros en la carpeta worker/
+// pub mod submodule;
+
 pub struct Worker<T> {
     coordinator_url: String,
     pub x_min: Vec<T>,

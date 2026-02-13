@@ -1,51 +1,15 @@
 use axum::{
-    extract::ws::{Message, WebSocket, WebSocketUpgrade},
+    extract::ws::WebSocketUpgrade,
     routing::get,
     Router,
 };
 use log::{error, info};
-use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum CoordinatorCommand {
-    Welcome(String),
-    Compute {
-        task_id: u32,
-        width: u32,
-        height: u32,
-        start_row: u32,
-        end_row: u32,
-    },
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum WorkerMessage {
-    Hello(String),
-    ComputeResult {
-        task_id: u32,
-        data: Vec<Vec<f64>>,
-    },
-}
-
-#[derive(Debug, Clone)]
-struct Task {
-    id: u32,
-    start_row: u32,
-    end_row: u32,
-}
-
-pub enum InternalMessage {
-    WorkerConnected(mpsc::Sender<CoordinatorCommand>),
-    WorkerSaidHello(String),
-    WorkerFinished {
-        task_id: u32,
-        data: Vec<Vec<f64>>,
-        worker_tx: mpsc::Sender<CoordinatorCommand>,
-    },
-}
+use crate::coordinator::types::{CoordinatorCommand, InternalMessage, Task};
+use crate::coordinator::handlers::handle_socket;
 
 pub struct Coordinator {
     pub storage: Vec<Vec<f64>>,
@@ -152,49 +116,5 @@ impl Coordinator {
         }
 
         Ok(())
-    }
-}
-
-async fn handle_socket(mut socket: WebSocket, tx: mpsc::Sender<InternalMessage>) {
-    let (worker_tx, mut worker_rx) = mpsc::channel::<CoordinatorCommand>(10);
-
-    if tx
-        .send(InternalMessage::WorkerConnected(worker_tx.clone()))
-        .await
-        .is_err()
-    {
-        return;
-    }
-
-    loop {
-        tokio::select! {
-            Some(cmd) = worker_rx.recv() => {
-                let json = serde_json::to_string(&cmd).unwrap();
-                if socket.send(Message::Text(json.into())).await.is_err() {
-                    break;
-                }
-            }
-            Some(result) = socket.recv() => {
-                match result {
-                    Ok(Message::Text(text)) => {
-                        if let Ok(msg) = serde_json::from_str::<WorkerMessage>(&text) {
-                            match msg {
-                                WorkerMessage::Hello(greeting) => {
-                                    let _ = tx.send(InternalMessage::WorkerSaidHello(greeting)).await;
-                                }
-                                WorkerMessage::ComputeResult { task_id, data } => {
-                                    let _ = tx.send(InternalMessage::WorkerFinished { 
-                                        task_id, 
-                                        data, 
-                                        worker_tx: worker_tx.clone() 
-                                    }).await;
-                                }
-                            }
-                        }
-                    }
-                    _ => break,
-                }
-            }
-        }
     }
 }

@@ -3,7 +3,7 @@ docker/config
 .env
 !.env.example
 
-rust/**/target
+rust/target
 
 # Added by cargo
 
