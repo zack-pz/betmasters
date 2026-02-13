@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use crate::coordinator::CoordinatorCommand;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum CoordinatorCommand {
