@@ -21,24 +21,27 @@ where
         }
     }
 
-    pub async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(self, port: u16) -> Result<(), Box<dyn std::error::Error>> {
         let parallelism = std::thread::available_parallelism()?.get();
         
-        let local_addr = std::net::UdpSocket::bind("0.0.0.0:0")
-            .and_then(|socket| {
-                socket.connect("8.8.8.8:80")?;
-                socket.local_addr()
-            })
-            .map(|addr| addr.to_string())
-            .unwrap_or_else(|_| "unknown".to_string());
+        let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+        let listener = tokio::net::TcpListener::bind(addr).await?;
 
-        info!("Worker ready at {}. Parallelism available: {} threads", local_addr, parallelism);
+        info!("Worker listening on {}. Parallelism available: {} threads", addr, parallelism);
+
+        // Simple health check for the worker
+        let app = axum::Router::new().route("/", axum::routing::get(|| async { "Worker is running" }));
+        tokio::spawn(async move {
+            if let Err(e) = axum::serve(listener, app).await {
+                error!("Worker server error: {}", e);
+            }
+        });
 
         let client = reqwest::Client::new();
         let base_url = self.coordinator_url.trim_end_matches('/');
 
         // Greet
-        let greeting = WorkerMessage::Hello(format!("¡Hello Coordinator from {}!", local_addr));
+        let greeting = WorkerMessage::Hello(format!("¡Hello Coordinator from {}!", addr));
         if let Err(e) = client.post(format!("{}/hello", base_url))
             .json(&greeting)
             .send()

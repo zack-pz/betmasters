@@ -18,6 +18,14 @@ struct Args {
     /// Run as worker
     #[arg(short = 'w', long)]
     worker: bool,
+
+    /// Coordinator URL (for workers)
+    #[arg(short = 'u', long, env = "COORDINATOR_URL", default_value = "http://127.0.0.1:8080")]
+    coordinator_url: String,
+
+    /// Port to listen on
+    #[arg(short = 'p', long, env = "PORT")]
+    port: Option<u16>,
 }
 
 #[tokio::main]
@@ -48,15 +56,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let task = async move {
         if args.worker {
-            let worker = Worker::<f64>::new("http://127.0.0.1:8080".to_string());
-            if let Err(e) = worker.run().await {
+            let port = args.port.unwrap_or(8081);
+            let worker = Worker::<f64>::new(args.coordinator_url);
+            if let Err(e) = worker.run(port).await {
                 eprintln!("Worker error: {}", e);
             }
         } else {
             // Default to coordinator if --worker is not specified, 
             // even if --coordinator is not explicitly passed.
+            let port = args.port.unwrap_or(8080);
             let coordinator = Coordinator::new(100, 100);
-            if let Err(e) = coordinator.run(8080).await {
+            if let Err(e) = coordinator.run(port).await {
                 eprintln!("Coordinator error: {}", e);
             }
         }
