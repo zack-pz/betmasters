@@ -23,13 +23,22 @@ where
 
     pub async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         let parallelism = std::thread::available_parallelism()?.get();
-        info!("Worker ready. Parallelism available: {} threads", parallelism);
+        
+        let local_addr = std::net::UdpSocket::bind("0.0.0.0:0")
+            .and_then(|socket| {
+                socket.connect("8.8.8.8:80")?;
+                socket.local_addr()
+            })
+            .map(|addr| addr.to_string())
+            .unwrap_or_else(|_| "unknown".to_string());
+
+        info!("Worker ready at {}. Parallelism available: {} threads", local_addr, parallelism);
 
         let client = reqwest::Client::new();
         let base_url = self.coordinator_url.trim_end_matches('/');
 
         // Greet
-        let greeting = WorkerMessage::Hello("¡Hello Coordinator via HTTP!".to_string());
+        let greeting = WorkerMessage::Hello(format!("¡Hello Coordinator from {}!", local_addr));
         if let Err(e) = client.post(format!("{}/hello", base_url))
             .json(&greeting)
             .send()
