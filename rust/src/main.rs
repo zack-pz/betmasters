@@ -1,6 +1,7 @@
 mod coordinator;
 mod logger;
 mod worker;
+mod core;
 
 use clap::{Parser, ValueEnum};
 use coordinator::Coordinator;
@@ -51,13 +52,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let task = async move {
         match args.type_ {
             NodeType::Coordinator => {
-                let coordinator = Coordinator::new();
+                let coordinator = Coordinator::new(100, 100);
                 if let Err(e) = coordinator.run(8080).await {
                     eprintln!("Coordinator error: {}", e);
                 }
             }
             NodeType::Worker => {
-                let worker = Worker::new("ws://127.0.0.1:8080/ws".to_string());
+                let worker = Worker::<f64>::new("http://127.0.0.1:8080".to_string());
                 if let Err(e) = worker.run().await {
                     eprintln!("Worker error: {}", e);
                 }
