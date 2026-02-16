@@ -1,47 +1,47 @@
-use axum::extract::ws::{Message, WebSocket};
-use tokio::sync::mpsc;
+use axum::{
+    extract::{State, Json},
+    http::StatusCode,
+};
+use tokio::sync::{mpsc, oneshot};
 use crate::coordinator::types::{CoordinatorCommand, InternalMessage, WorkerMessage};
 
-pub(crate) async fn handle_socket(mut socket: WebSocket, tx: mpsc::Sender<InternalMessage>) {
-    let (worker_tx, mut worker_rx) = mpsc::channel::<CoordinatorCommand>(10);
+pub async fn hello(
+    State(tx): State<mpsc::Sender<InternalMessage>>,
+    Json(msg): Json<WorkerMessage>,
+) -> StatusCode {
+    if let WorkerMessage::Hello(greeting) = msg {
+        let _ = tx.send(InternalMessage::WorkerSaidHello(greeting)).await;
+        StatusCode::OK
+    } else {
+        StatusCode::BAD_REQUEST
+    }
+}
 
-    if tx
-        .send(InternalMessage::WorkerConnected(worker_tx.clone()))
-        .await
-        .is_err()
-    {
-        return;
+pub async fn get_task(
+    State(tx): State<mpsc::Sender<InternalMessage>>,
+) -> Result<Json<Option<CoordinatorCommand>>, StatusCode> {
+    let (reply_tx, reply_rx) = oneshot::channel();
+    
+    if tx.send(InternalMessage::GetTask(reply_tx)).await.is_err() {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
-    loop {
-        tokio::select! {
-            Some(cmd) = worker_rx.recv() => {
-                let json = serde_json::to_string(&cmd).unwrap();
-                if socket.send(Message::Text(json.into())).await.is_err() {
-                    break;
-                }
-            }
-            Some(result) = socket.recv() => {
-                match result {
-                    Ok(Message::Text(text)) => {
-                        if let Ok(msg) = serde_json::from_str::<WorkerMessage>(&text) {
-                            match msg {
-                                WorkerMessage::Hello(greeting) => {
-                                    let _ = tx.send(InternalMessage::WorkerSaidHello(greeting)).await;
-                                }
-                                WorkerMessage::ComputeResult { task_id, data } => {
-                                    let _ = tx.send(InternalMessage::WorkerFinished { 
-                                        task_id, 
-                                        data, 
-                                        worker_tx: worker_tx.clone() 
-                                    }).await;
-                                }
-                            }
-                        }
-                    }
-                    _ => break,
-                }
-            }
+    match reply_rx.await {
+        Ok(task) => Ok(Json(task)),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+pub async fn submit_result(
+    State(tx): State<mpsc::Sender<InternalMessage>>,
+    Json(msg): Json<WorkerMessage>,
+) -> StatusCode {
+    if let WorkerMessage::ComputeResult { task_id, data } = msg {
+        if tx.send(InternalMessage::WorkerFinished { task_id, data }).await.is_err() {
+            return StatusCode::INTERNAL_SERVER_ERROR;
         }
+        StatusCode::OK
+    } else {
+        StatusCode::BAD_REQUEST
     }
 }

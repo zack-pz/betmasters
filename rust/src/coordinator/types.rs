@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum CoordinatorCommand {
     Welcome(String),
+    Wait,
     Compute {
         task_id: u32,
         width: u32,
@@ -30,11 +31,11 @@ pub(crate) struct Task {
 }
 
 pub enum InternalMessage {
-    WorkerConnected(mpsc::Sender<CoordinatorCommand>),
+    GetTask(oneshot::Sender<Option<CoordinatorCommand>>),
     WorkerSaidHello(String),
     WorkerFinished {
         task_id: u32,
         data: Vec<Vec<f64>>,
-        worker_tx: mpsc::Sender<CoordinatorCommand>,
     },
+    StartExecution,
 }

@@ -1,8 +1,8 @@
 use crate::coordinator::{CoordinatorCommand, WorkerMessage};
-use futures_util::{SinkExt, StreamExt};
-use log::{error, info};
+use log::{error, info, warn};
 use num_traits::Num;
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use std::time::Duration;
+use tokio::time::sleep;
 
 use crate::worker::types::Worker;
 
@@ -25,62 +25,79 @@ where
         let parallelism = std::thread::available_parallelism()?.get();
         info!("Worker ready. Parallelism available: {} threads", parallelism);
 
-        let url = self.coordinator_url.clone();
-        Self::connect_and_greet(url, self).await?;
-        
-        Ok(())
-    }
+        let client = reqwest::Client::new();
+        let base_url = self.coordinator_url.trim_end_matches('/');
 
-    async fn connect_and_greet(url: String, worker: Worker<T>) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Connecting to coordinator at {}...", url);
-        
-        let (ws_stream, _) = connect_async(url).await?;
-        let (mut write, mut read) = ws_stream.split();
-
-        let greeting = WorkerMessage::Hello("¡Hello Coordinator!".to_string());
-        let json = serde_json::to_string(&greeting)?;
-        write.send(Message::Text(json.into())).await?;
-
-        while let Some(msg) = read.next().await {
-            match msg {
-                Ok(Message::Text(text)) => {
-                    if let Ok(cmd) = serde_json::from_str::<CoordinatorCommand>(&text) {
-                        match cmd {
-                            CoordinatorCommand::Welcome(welcome_msg) => {
-                                info!("Sent by coordinator: {}", welcome_msg);
-                            }
-                            CoordinatorCommand::Compute { task_id, width, height, start_row, end_row } => {
-                                info!("Starting task {}: rows {} to {} (total {}x{})", task_id, start_row, end_row, width, height);
-                                #[cfg(feature = "rayon")]
-                                {
-                                    let result = worker.compute_block(width, height, start_row, end_row);
-                                    
-                                    info!("Task {} finished. Sending result ({} rows).", task_id, result.len());
-                                    let result_msg = WorkerMessage::ComputeResult { task_id, data: result };
-                                    let json = serde_json::to_string(&result_msg)?;
-                                    write.send(Message::Text(json.into())).await?;
-                                }
-                                #[cfg(not(feature = "rayon"))]
-                                {
-                                    let _ = &worker; // Mark as used
-                                    error!("Rayon feature not enabled, cannot compute!");
-                                }
-                            }
-                        }
-                    }
-                }
-                Ok(Message::Close(_)) => {
-                    info!("Coordinator closed the connection.");
-                    break;
-                }
-                Err(e) => {
-                    error!("WebSocket stream error: {}", e);
-                    break;
-                }
-                _ => {}
-            }
+        // Greet
+        let greeting = WorkerMessage::Hello("¡Hello Coordinator via HTTP!".to_string());
+        if let Err(e) = client.post(format!("{}/hello", base_url))
+            .json(&greeting)
+            .send()
+            .await {
+            error!("Failed to greet coordinator: {}", e);
+            return Err(e.into());
         }
 
+        loop {
+            // Request task
+            let resp = client.get(format!("{}/get_task", base_url))
+                .send()
+                .await;
+
+            match resp {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        let task_opt: Option<CoordinatorCommand> = response.json().await?;
+                        
+                        if let Some(cmd) = task_opt {
+                            match cmd {
+                                CoordinatorCommand::Welcome(msg) => {
+                                    info!("Coordinator welcomed us: {}", msg);
+                                }
+                                CoordinatorCommand::Wait => {
+                                    // info!("Waiting for coordinator to start execution...");
+                                    sleep(Duration::from_secs(1)).await;
+                                }
+                                CoordinatorCommand::Compute { task_id, width, height, start_row, end_row } => {
+                                    info!("Starting task {}: rows {} to {} (total {}x{})", task_id, start_row, end_row, width, height);
+                                    
+                                    #[cfg(feature = "rayon")]
+                                    {
+                                        let result = self.compute_block(width, height, start_row, end_row);
+                                        
+                                        info!("Task {} finished. Sending result ({} rows).", task_id, result.len());
+                                        let result_msg = WorkerMessage::ComputeResult { task_id, data: result };
+                                        
+                                        if let Err(e) = client.post(format!("{}/submit_result", base_url))
+                                            .json(&result_msg)
+                                            .send()
+                                            .await {
+                                            error!("Failed to submit result for task {}: {}", task_id, e);
+                                        }
+                                    }
+                                    #[cfg(not(feature = "rayon"))]
+                                    {
+                                        warn!("Rayon feature not enabled, cannot compute!");
+                                        sleep(Duration::from_secs(5)).await;
+                                    }
+                                }
+                            }
+                        } else {
+                            info!("No more tasks available. Worker shutting down.");
+                            break;
+                        }
+                    } else {
+                        error!("Coordinator returned error status: {}", response.status());
+                        sleep(Duration::from_secs(2)).await;
+                    }
+                }
+                Err(e) => {
+                    error!("Connection error: {}", e);
+                    sleep(Duration::from_secs(5)).await;
+                }
+            }
+        }
+        
         Ok(())
     }
 }
