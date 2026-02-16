@@ -1,5 +1,5 @@
 use crate::coordinator::{CoordinatorCommand, WorkerMessage};
-use log::{error, info, warn};
+use log::{error, info};
 use num_traits::Num;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -61,24 +61,16 @@ where
                                 CoordinatorCommand::Compute { task_id, width, height, start_row, end_row } => {
                                     info!("Starting task {}: rows {} to {} (total {}x{})", task_id, start_row, end_row, width, height);
                                     
-                                    #[cfg(feature = "rayon")]
-                                    {
-                                        let result = self.compute_block(width, height, start_row, end_row);
-                                        
-                                        info!("Task {} finished. Sending result ({} rows).", task_id, result.len());
-                                        let result_msg = WorkerMessage::ComputeResult { task_id, data: result };
-                                        
-                                        if let Err(e) = client.post(format!("{}/submit_result", base_url))
-                                            .json(&result_msg)
-                                            .send()
-                                            .await {
-                                            error!("Failed to submit result for task {}: {}", task_id, e);
-                                        }
-                                    }
-                                    #[cfg(not(feature = "rayon"))]
-                                    {
-                                        warn!("Rayon feature not enabled, cannot compute!");
-                                        sleep(Duration::from_secs(5)).await;
+                                    let result = self.compute_block(width, height, start_row, end_row);
+                                    
+                                    info!("Task {} finished. Sending result ({} rows).", task_id, result.len());
+                                    let result_msg = WorkerMessage::ComputeResult { task_id, data: result };
+                                    
+                                    if let Err(e) = client.post(format!("{}/submit_result", base_url))
+                                        .json(&result_msg)
+                                        .send()
+                                        .await {
+                                        error!("Failed to submit result for task {}: {}", task_id, e);
                                     }
                                 }
                             }

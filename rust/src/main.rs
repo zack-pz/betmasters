@@ -1,9 +1,8 @@
 mod coordinator;
 mod logger;
 mod worker;
-mod core;
 
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use coordinator::Coordinator;
 use std::process::ExitCode;
 use tokio::signal;
@@ -12,15 +11,13 @@ use worker::Worker;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// Type of the node to run
-    #[arg(short, long, value_enum, default_value_t = NodeType::Coordinator)]
-    type_: NodeType,
-}
+    /// Run as coordinator
+    #[arg(short = 'c', long)]
+    coordinator: bool,
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
-enum NodeType {
-    Coordinator,
-    Worker,
+    /// Run as worker
+    #[arg(short = 'w', long)]
+    worker: bool,
 }
 
 #[tokio::main]
@@ -50,18 +47,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     let task = async move {
-        match args.type_ {
-            NodeType::Coordinator => {
-                let coordinator = Coordinator::new(100, 100);
-                if let Err(e) = coordinator.run(8080).await {
-                    eprintln!("Coordinator error: {}", e);
-                }
+        if args.worker {
+            let worker = Worker::<f64>::new("http://127.0.0.1:8080".to_string());
+            if let Err(e) = worker.run().await {
+                eprintln!("Worker error: {}", e);
             }
-            NodeType::Worker => {
-                let worker = Worker::<f64>::new("http://127.0.0.1:8080".to_string());
-                if let Err(e) = worker.run().await {
-                    eprintln!("Worker error: {}", e);
-                }
+        } else {
+            // Default to coordinator if --worker is not specified, 
+            // even if --coordinator is not explicitly passed.
+            let coordinator = Coordinator::new(100, 100);
+            if let Err(e) = coordinator.run(8080).await {
+                eprintln!("Coordinator error: {}", e);
             }
         }
     };
