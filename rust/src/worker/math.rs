@@ -1,85 +1,86 @@
 use num_complex::Complex;
 use num_traits::Num;
 
-#[cfg(feature = "rayon")]
-use rayon::prelude::*;
-
 use crate::worker::types::Worker;
 
 impl<T> Worker<T>
 where
     T: Num + Clone + Default + PartialOrd + Send + Sync + TryFrom<f64> + TryFrom<u32>,
 {
+    /// Convierte un f64 al tipo genérico T.
     pub(crate) fn from_f64(v: f64) -> T {
         T::try_from(v)
             .ok()
-            .ok_or("conversion failed")
-            .expect("Failed to convert from f64")
+            .expect("Error al convertir f64 a T")
     }
 
-    #[allow(dead_code)]
+    /// Convierte un u32 al tipo genérico T.
     pub(crate) fn from_u32(v: u32) -> T {
         T::try_from(v)
             .ok()
-            .ok_or("conversion failed")
-            .expect("Failed to convert from u32")
+            .expect("Error al convertir u32 a T")
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn remap(value: T, start1: T, stop1: T, start2: T, stop2: T) -> T {
-        start2.clone()
-            + (value - start1.clone()) * (stop2 - start2) / (stop1 - start1)
-    }
-
-    #[cfg(feature = "rayon")]
     pub fn compute_block(&self, width: u32, height: u32, start_row: u32, end_row: u32) -> Vec<Vec<f64>> {
+        // Obtenemos los límites actuales del plano complejo
+        let x_min = self.x_min.last().unwrap().clone();
+        let x_max = self.x_max.last().unwrap().clone();
+        let y_min = self.y_min.last().unwrap().clone();
+        let y_max = self.y_max.last().unwrap().clone();
+
+        // Convertimos dimensiones a T para los cálculos
+        let width_t = Self::from_u32(width);
+        let height_t = Self::from_u32(height);
+        
+        // Calculamos cuánto cambia X e Y por cada píxel (el "paso")
+        let range_x = x_max - x_min.clone();
+        let range_y = y_max - y_min.clone();
+        
+        let dx = range_x / width_t;
+        let dy = range_y / height_t;
+
+        // Calculamos cada fila de forma secuencial
         (start_row..end_row)
-            .into_par_iter()
-            .map(|v| {
-                let y: T = Self::remap(
-                    Self::from_u32(v),
-                    Self::from_f64(0.0),
-                    Self::from_u32(height),
-                    self.y_min.last().unwrap().clone(),
-                    self.y_max.last().unwrap().clone(),
-                );
+            .into_iter()
+            .map(|row_idx| {
+                // Determinamos la coordenada Y de esta fila
+                let row_pos = Self::from_u32(row_idx);
+                let current_y = y_min.clone() + row_pos * dy.clone();
+                
+                // Calculamos cada píxel (columna) de la fila
                 (0..width)
-                    .map(|u| {
-                        let x: T = Self::remap(
-                            Self::from_u32(u),
-                            Self::from_f64(0.0),
-                            Self::from_u32(width),
-                            self.x_min.last().unwrap().clone(),
-                            self.x_max.last().unwrap().clone(),
-                        );
-                        Self::evaluate(x.clone(), y.clone(), self.max_iters)
+                    .map(|col_idx| {
+                        // Determinamos la coordenada X de este píxel
+                        let col_pos = Self::from_u32(col_idx);
+                        let current_x = x_min.clone() + col_pos * dx.clone();
+                        
+                        // Evaluamos el punto en el fractal de Mandelbrot
+                        Self::evaluate(current_x, current_y.clone(), self.max_iters)
                     })
-                    .collect()
+                    .collect::<Vec<f64>>()
             })
             .collect()
     }
 
-    #[allow(dead_code)]
+    /// Evalúa un punto (x, y) en el conjunto de Mandelbrot.
+    /// Retorna el número de iteraciones antes de que el punto escape.
     pub(crate) fn evaluate(x: T, y: T, max_iters: usize) -> f64 {
-        let q = (x.clone() - Self::from_f64(0.25)) * (x.clone() - Self::from_f64(0.25)) + y.clone() * y.clone();
-        if q.clone() * (q + (x.clone() - Self::from_f64(0.25))) <= y.clone() * y.clone() * Self::from_f64(0.25) {
-            return max_iters as f64;
-        }
-        let mut z = Complex::<T>::default();
-        let mut z_old = Complex::<T>::default();
         let c = Complex::<T>::new(x, y);
+        let mut z = Complex::<T>::default();
+        
+        let four = Self::from_f64(4.0);
+
         for i in 0..max_iters {
-            if z.norm_sqr() >= Self::from_f64(4.0) {
-                return i as f64 - 1.0;
+            // Si el cuadrado de la magnitud supera 4, el punto ha escapado
+            if z.norm_sqr() > four {
+                return i as f64;
             }
+            
+            // Aplicamos la función iterativa: z = z^2 + c
             z = z.clone() * z + c.clone();
-            if z == z_old {
-                return max_iters as f64;
-            }
-            if i % 20 == 0 {
-                z_old = z.clone();
-            }
         }
+
+        // Si alcanzamos el máximo de iteraciones, el punto está en el conjunto
         max_iters as f64
     }
 }
