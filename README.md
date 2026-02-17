@@ -44,10 +44,14 @@ To run the program, use the following commands (ensure you are in the `rust/` di
 
 ### Worker
 ```bash
-cargo run --features rayon -- --type worker
+cargo run -- --coordinator
+# or
+cargo run -- -c
 ```
 
 ### Coordinator
 ```bash
-cargo run --features rayon -- --type coordinator
+cargo run -- --worker
+# or
+cargo run -- -w
 ```

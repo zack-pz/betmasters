@@ -1,5 +1,5 @@
 use crate::coordinator::{CoordinatorCommand, WorkerMessage};
-use log::{error, info, warn};
+use log::{error, info};
 use num_traits::Num;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -21,15 +21,27 @@ where
         }
     }
 
-    pub async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(self, port: u16) -> Result<(), Box<dyn std::error::Error>> {
         let parallelism = std::thread::available_parallelism()?.get();
-        info!("Worker ready. Parallelism available: {} threads", parallelism);
+        
+        let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+        let listener = tokio::net::TcpListener::bind(addr).await?;
+
+        info!("Worker listening on {}. Parallelism available: {} threads", addr, parallelism);
+
+        // Simple health check for the worker
+        let app = axum::Router::new().route("/", axum::routing::get(|| async { "Worker is running" }));
+        tokio::spawn(async move {
+            if let Err(e) = axum::serve(listener, app).await {
+                error!("Worker server error: {}", e);
+            }
+        });
 
         let client = reqwest::Client::new();
         let base_url = self.coordinator_url.trim_end_matches('/');
 
         // Greet
-        let greeting = WorkerMessage::Hello("¡Hello Coordinator via HTTP!".to_string());
+        let greeting = WorkerMessage::Hello(format!("¡Hello Coordinator from {}!", addr));
         if let Err(e) = client.post(format!("{}/hello", base_url))
             .json(&greeting)
             .send()
@@ -61,24 +73,16 @@ where
                                 CoordinatorCommand::Compute { task_id, width, height, start_row, end_row } => {
                                     info!("Starting task {}: rows {} to {} (total {}x{})", task_id, start_row, end_row, width, height);
                                     
-                                    #[cfg(feature = "rayon")]
-                                    {
-                                        let result = self.compute_block(width, height, start_row, end_row);
-                                        
-                                        info!("Task {} finished. Sending result ({} rows).", task_id, result.len());
-                                        let result_msg = WorkerMessage::ComputeResult { task_id, data: result };
-                                        
-                                        if let Err(e) = client.post(format!("{}/submit_result", base_url))
-                                            .json(&result_msg)
-                                            .send()
-                                            .await {
-                                            error!("Failed to submit result for task {}: {}", task_id, e);
-                                        }
-                                    }
-                                    #[cfg(not(feature = "rayon"))]
-                                    {
-                                        warn!("Rayon feature not enabled, cannot compute!");
-                                        sleep(Duration::from_secs(5)).await;
+                                    let result = self.compute_block(width, height, start_row, end_row);
+                                    
+                                    info!("Task {} finished. Sending result ({} rows).", task_id, result.len());
+                                    let result_msg = WorkerMessage::ComputeResult { task_id, data: result };
+                                    
+                                    if let Err(e) = client.post(format!("{}/submit_result", base_url))
+                                        .json(&result_msg)
+                                        .send()
+                                        .await {
+                                        error!("Failed to submit result for task {}: {}", task_id, e);
                                     }
                                 }
                             }

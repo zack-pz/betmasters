@@ -1,31 +1,100 @@
 services:
-  wireguard:
-    image: lscr.io/linuxserver/wireguard:latest
-    container_name: wireguard
-    cap_add:
-      - NET_ADMIN
-      - SYS_MODULE
-    environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
-      - TZ=${TZ}
-      - SERVERURL=${SERVER_URL}
-      - SERVERPORT=${VPN_PORT}
-      - PEERS=${PEERS}
-      - PEERDNS=${PEERDNS}
-      - INTERNAL_SUBNET=${INTERNAL_SUBNET}
-      - ALLOWEDIPS=${ALLOWEDIPS}
-      - LOG_CONFS=${LOG_CONFS}
-    volumes:
-      - wireguard:/config
-      - /lib/modules:/lib/modules # Fundamental para el acceso al Kernel
-    ports:
-      - ${VPN_PORT}:${VPN_PORT}/udp
-    sysctls:
-      - net.ipv4.conf.all.src_valid_mark=1
-      - net.ipv4.ip_forward=1 # Habilita el ruteo
-    restart: unless-stopped
 
-volumes:
-  wireguard:
-    driver: local
+  coordinator:
+    build: ../rust/.
+    container_name: con
+    stdin_open: true # Mantiene el stdin abierto (equivalente a -i)
+    tty: true        # Asigna una pseudo-terminal (equivalente a -t)
+    command: [ "--coordinator" ]
+    ports:
+    - "8080:8080"
+
+  worker-1:
+    build: ../rust/.
+    command: [ "--worker", "-p", "8081" ]
+    environment:
+      - COORDINATOR_URL=${COORDINATOR_URL}
+    ports:
+      - "8081:8081"
+    depends_on:
+      - coordinator
+
+  worker-2:
+    build: ../rust/.
+    command: [ "--worker", "-p", "8082" ]
+    environment:
+      - COORDINATOR_URL=${COORDINATOR_URL}
+    ports:
+      - "8082:8082"
+    depends_on:
+      - coordinator
+
+  worker-3:
+    build: ../rust/.
+    command: [ "--worker", "-p", "8083" ]
+    environment:
+      - COORDINATOR_URL=${COORDINATOR_URL}
+    ports:
+      - "8083:8083"
+    depends_on:
+      - coordinator
+
+  worker-4:
+    build: ../rust/.
+    command: [ "--worker", "-p", "8084" ]
+    environment:
+      - COORDINATOR_URL=${COORDINATOR_URL}
+    ports:
+      - "8084:8084"
+    depends_on:
+      - coordinator
+
+  worker-5:
+    build: ../rust/.
+    command: [ "--worker", "-p", "8085" ]
+    environment:
+      - COORDINATOR_URL=${COORDINATOR_URL}
+    ports:
+      - "8085:8085"
+    depends_on:
+      - coordinator
+
+  worker-6:
+    build: ../rust/.
+    command: [ "--worker", "-p", "8086" ]
+    environment:
+      - COORDINATOR_URL=${COORDINATOR_URL}
+    ports:
+      - "8086:8086"
+    depends_on:
+      - coordinator
+
+  worker-7:
+    build: ../rust/.
+    command: [ "--worker", "-p", "8087" ]
+    environment:
+      - COORDINATOR_URL=${COORDINATOR_URL}
+    ports:
+      - "8087:8087"
+    depends_on:
+      - coordinator
+
+  worker-8:
+    build: ../rust/.
+    command: [ "--worker", "-p", "8088" ]
+    environment:
+      - COORDINATOR_URL=${COORDINATOR_URL}
+    ports:
+      - "8088:8088"
+    depends_on:
+      - coordinator
+
+  worker-9:
+    build: ../rust/.
+    command: [ "--worker", "-p", "8089" ]
+    environment:
+      - COORDINATOR_URL=${COORDINATOR_URL}
+    ports:
+      - "8089:8089"
+    depends_on:
+      - coordinator
