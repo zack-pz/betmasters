@@ -23,6 +23,10 @@ struct Args {
     #[arg(short = 'u', long, env = "COORDINATOR_URL", default_value = "http://127.0.0.1:8080")]
     coordinator_url: String,
 
+    /// IP address to bind to
+    #[arg(short = 'b', long, env = "BIND_ADDR", default_value = "0.0.0.0")]
+    bind: String,
+
     /// Port to listen on
     #[arg(short = 'p', long, env = "PORT")]
     port: Option<u16>,
@@ -58,7 +62,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         if args.worker {
             let port = args.port.unwrap_or(8081);
             let worker = Worker::<f64>::new(args.coordinator_url);
-            if let Err(e) = worker.run(port).await {
+            if let Err(e) = worker.run(&args.bind, port).await {
                 eprintln!("Worker error: {}", e);
             }
         } else {
@@ -66,7 +70,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             // even if --coordinator is not explicitly passed.
             let port = args.port.unwrap_or(8080);
             let coordinator = Coordinator::new(100, 100);
-            if let Err(e) = coordinator.run(port).await {
+            if let Err(e) = coordinator.run(&args.bind, port).await {
                 eprintln!("Coordinator error: {}", e);
             }
         }

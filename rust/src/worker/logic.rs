@@ -21,10 +21,10 @@ where
         }
     }
 
-    pub async fn run(self, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(self, bind_addr: &str, port: u16) -> Result<(), Box<dyn std::error::Error>> {
         let parallelism = std::thread::available_parallelism()?.get();
         
-        let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+        let addr: std::net::SocketAddr = format!("{}:{}", bind_addr, port).parse()?;
         let listener = tokio::net::TcpListener::bind(addr).await?;
 
         info!("Worker listening on {}. Parallelism available: {} threads", addr, parallelism);
