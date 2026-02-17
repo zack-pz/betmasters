@@ -19,13 +19,13 @@ COPY src ./src
 RUN touch src/main.rs && \
     cargo build --release --target x86_64-unknown-linux-musl
 
-# Etapa de ejecución (Imagen final totalmente limpia)
-FROM scratch
+# Etapa de ejecución
+FROM alpine:latest
 
-# Copiar los certificados para que las peticiones HTTPS/TLS funcionen
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+# Instalar herramientas de red y WireGuard
+RUN apk add --no-cache wireguard-tools iptables ca-certificates
 
-# Copiar el binario estático
+# Copiar el binario estático desde la etapa de compilación
 COPY --from=builder /usr/src/app/target/x86_64-unknown-linux-musl/release/core /core
 
 # Ejecutar el binario directamente

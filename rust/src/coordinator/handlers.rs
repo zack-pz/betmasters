@@ -17,6 +17,10 @@ pub async fn hello(
     }
 }
 
+pub async fn root_hello() -> &'static str {
+    "Hello from Coordinator!"
+}
+
 pub async fn get_task(
     State(tx): State<mpsc::Sender<InternalMessage>>,
 ) -> Result<Json<Option<CoordinatorCommand>>, StatusCode> {
