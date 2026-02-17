@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use tokio::time::interval;
 
 use crate::coordinator::types::{CoordinatorCommand, InternalMessage, Task};
-use crate::coordinator::handlers::{get_task, submit_result, hello};
+use crate::coordinator::handlers::{get_task, submit_result, hello, root_hello};
 
 pub struct Coordinator {
     pub storage: Vec<Vec<f64>>,
@@ -51,17 +51,18 @@ impl Coordinator {
         }
     }
 
-    pub async fn run(mut self, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(mut self, bind_addr: &str, port: u16) -> Result<(), Box<dyn std::error::Error>> {
         let (tx, mut rx) = mpsc::channel::<InternalMessage>(100);
         let app_state = tx.clone();
 
         let app = Router::new()
+            .route("/", get(root_hello))
             .route("/hello", post(hello))
             .route("/get_task", get(get_task))
             .route("/submit_result", post(submit_result))
             .with_state(app_state);
 
-        let addr = SocketAddr::from(([0, 0, 0, 0], port));
+        let addr: SocketAddr = format!("{}:{}", bind_addr, port).parse()?;
         let listener = tokio::net::TcpListener::bind(addr).await?;
 
         let local_ip = std::net::UdpSocket::bind("0.0.0.0:0")
