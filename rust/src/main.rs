@@ -5,7 +5,6 @@ mod worker;
 use coordinator::Coordinator;
 use std::env;
 use std::process::ExitCode;
-use tokio::signal;
 use worker::Worker;
 
 #[tokio::main]
@@ -39,26 +38,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let coordinator_url =
         env::var("COORDINATOR_URL").unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
 
-    let task = async move {
-        if role == "worker" {
-            let port = port_env.unwrap_or(8081);
-            let worker = Worker::<f64>::new(coordinator_url);
-            if let Err(e) = worker.run(&bind_addr, port).await {
-                eprintln!("Worker error: {}", e);
-            }
-        } else {
-            let port = port_env.unwrap_or(8080);
-            let coordinator = Coordinator::new(100, 100);
-            if let Err(e) = coordinator.run(&bind_addr, port).await {
-                eprintln!("Coordinator error: {}", e);
-            }
+    if role == "worker" {
+        let port = port_env.unwrap_or(8081);
+        let worker = Worker::new(coordinator_url);
+        if let Err(e) = worker.run(&bind_addr, port).await {
+            eprintln!("Worker error: {}", e);
         }
-    };
-
-    tokio::select! {
-        _ = task => {}
-        _ = signal::ctrl_c() => {
-            println!("\nShutting down gracefully...");
+    } else {
+        let port = port_env.unwrap_or(8080);
+        let coordinator = Coordinator::new(100, 100);
+        if let Err(e) = coordinator.run(&bind_addr, port).await {
+            eprintln!("Coordinator error: {}", e);
         }
     }
 

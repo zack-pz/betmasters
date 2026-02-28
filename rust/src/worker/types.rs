@@ -1,8 +1,9 @@
-pub struct Worker<T> {
+#[derive(Debug, Clone)]
+pub struct Worker {
     pub(crate) coordinator_url: String,
-    pub x_min: Vec<T>,
-    pub x_max: Vec<T>,
-    pub y_min: Vec<T>,
-    pub y_max: Vec<T>,
-    pub max_iters: usize,
+    pub(crate) max_iters: usize,
+    pub(crate) x_min: Vec<f64>,
+    pub(crate) x_max: Vec<f64>,
+    pub(crate) y_min: Vec<f64>,
+    pub(crate) y_max: Vec<f64>,
 }
