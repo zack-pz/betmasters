@@ -58,8 +58,8 @@ impl Coordinator {
         let app = Router::new()
             .route("/", get(root_hello))
             .route("/hello", post(hello))
-            .route("/work", get(get_task))
-            .route("/results", post(submit_result))
+            .route("/get_task", get(get_task))
+            .route("/submit_result", post(submit_result))
             .with_state(app_state);
 
         let addr: SocketAddr = format!("{}:{}", bind_addr, port).parse()?;

@@ -21,7 +21,7 @@ impl Worker {
 
         loop {
             // Solicitar trabajo al coordinador
-            let res = client.get(format!("{}/work", self.coordinator_url))
+            let res = client.get(format!("{}/get_task", self.coordinator_url))
                 .send()
                 .await;
 
@@ -41,7 +41,7 @@ impl Worker {
                                     data,
                                 };
 
-                                let _ = client.post(format!("{}/results", self.coordinator_url))
+                                let _ = client.post(format!("{}/submit_result", self.coordinator_url))
                                     .json(&result)
                                     .send()
                                     .await;
