@@ -5,15 +5,18 @@ services:
     container_name: con
     stdin_open: true # Mantiene el stdin abierto (equivalente a -i)
     tty: true        # Asigna una pseudo-terminal (equivalente a -t)
-    command: [ "--coordinator" ]
+    environment:
+      - APP_ROLE=coordinator
+      - PORT=8080
     ports:
     - "8080:8080"
 
   worker-1:
     build: ../rust/.
-    command: [ "--worker", "-p", "8081" ]
     environment:
-      - COORDINATOR_URL=${COORDINATOR_URL}
+      - APP_ROLE=worker
+      - PORT=8081
+      - COORDINATOR_URL=http://coordinator:8080
     ports:
       - "8081:8081"
     depends_on:
@@ -21,9 +24,10 @@ services:
 
   worker-2:
     build: ../rust/.
-    command: [ "--worker", "-p", "8082" ]
     environment:
-      - COORDINATOR_URL=${COORDINATOR_URL}
+      - APP_ROLE=worker
+      - PORT=8082
+      - COORDINATOR_URL=http://coordinator:8080
     ports:
       - "8082:8082"
     depends_on:
@@ -31,9 +35,10 @@ services:
 
   worker-3:
     build: ../rust/.
-    command: [ "--worker", "-p", "8083" ]
     environment:
-      - COORDINATOR_URL=${COORDINATOR_URL}
+      - APP_ROLE=worker
+      - PORT=8083
+      - COORDINATOR_URL=http://coordinator:8080
     ports:
       - "8083:8083"
     depends_on:
@@ -41,9 +46,10 @@ services:
 
   worker-4:
     build: ../rust/.
-    command: [ "--worker", "-p", "8084" ]
     environment:
-      - COORDINATOR_URL=${COORDINATOR_URL}
+      - APP_ROLE=worker
+      - PORT=8084
+      - COORDINATOR_URL=http://coordinator:8080
     ports:
       - "8084:8084"
     depends_on:
@@ -51,9 +57,10 @@ services:
 
   worker-5:
     build: ../rust/.
-    command: [ "--worker", "-p", "8085" ]
     environment:
-      - COORDINATOR_URL=${COORDINATOR_URL}
+      - APP_ROLE=worker
+      - PORT=8085
+      - COORDINATOR_URL=http://coordinator:8080
     ports:
       - "8085:8085"
     depends_on:
@@ -61,9 +68,10 @@ services:
 
   worker-6:
     build: ../rust/.
-    command: [ "--worker", "-p", "8086" ]
     environment:
-      - COORDINATOR_URL=${COORDINATOR_URL}
+      - APP_ROLE=worker
+      - PORT=8086
+      - COORDINATOR_URL=http://coordinator:8080
     ports:
       - "8086:8086"
     depends_on:
@@ -71,9 +79,10 @@ services:
 
   worker-7:
     build: ../rust/.
-    command: [ "--worker", "-p", "8087" ]
     environment:
-      - COORDINATOR_URL=${COORDINATOR_URL}
+      - APP_ROLE=worker
+      - PORT=8087
+      - COORDINATOR_URL=http://coordinator:8080
     ports:
       - "8087:8087"
     depends_on:
@@ -81,9 +90,10 @@ services:
 
   worker-8:
     build: ../rust/.
-    command: [ "--worker", "-p", "8088" ]
     environment:
-      - COORDINATOR_URL=${COORDINATOR_URL}
+      - APP_ROLE=worker
+      - PORT=8088
+      - COORDINATOR_URL=http://coordinator:8080
     ports:
       - "8088:8088"
     depends_on:
@@ -91,9 +101,10 @@ services:
 
   worker-9:
     build: ../rust/.
-    command: [ "--worker", "-p", "8089" ]
     environment:
-      - COORDINATOR_URL=${COORDINATOR_URL}
+      - APP_ROLE=worker
+      - PORT=8089
+      - COORDINATOR_URL=http://coordinator:8080
     ports:
       - "8089:8089"
     depends_on:

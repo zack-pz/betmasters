@@ -2,35 +2,11 @@ mod coordinator;
 mod logger;
 mod worker;
 
-use clap::Parser;
 use coordinator::Coordinator;
+use std::env;
 use std::process::ExitCode;
 use tokio::signal;
 use worker::Worker;
-
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Args {
-    /// Run as coordinator
-    #[arg(short = 'c', long)]
-    coordinator: bool,
-
-    /// Run as worker
-    #[arg(short = 'w', long)]
-    worker: bool,
-
-    /// Coordinator URL (for workers)
-    #[arg(short = 'u', long, env = "COORDINATOR_URL", default_value = "http://127.0.0.1:8080")]
-    coordinator_url: String,
-
-    /// IP address to bind to
-    #[arg(short = 'b', long, env = "BIND_ADDR", default_value = "0.0.0.0")]
-    bind: String,
-
-    /// Port to listen on
-    #[arg(short = 'p', long, env = "PORT")]
-    port: Option<u16>,
-}
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -56,21 +32,24 @@ async fn main() -> ExitCode {
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let args = Args::parse();
+    let role = env::var("APP_ROLE").unwrap_or_else(|_| "coordinator".to_string());
+    let bind_addr = env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let port_env = env::var("PORT").ok().and_then(|s| s.parse::<u16>().ok());
+
+    let coordinator_url =
+        env::var("COORDINATOR_URL").unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
 
     let task = async move {
-        if args.worker {
-            let port = args.port.unwrap_or(8081);
-            let worker = Worker::<f64>::new(args.coordinator_url);
-            if let Err(e) = worker.run(&args.bind, port).await {
+        if role == "worker" {
+            let port = port_env.unwrap_or(8081);
+            let worker = Worker::<f64>::new(coordinator_url);
+            if let Err(e) = worker.run(&bind_addr, port).await {
                 eprintln!("Worker error: {}", e);
             }
         } else {
-            // Default to coordinator if --worker is not specified, 
-            // even if --coordinator is not explicitly passed.
-            let port = args.port.unwrap_or(8080);
+            let port = port_env.unwrap_or(8080);
             let coordinator = Coordinator::new(100, 100);
-            if let Err(e) = coordinator.run(&args.bind, port).await {
+            if let Err(e) = coordinator.run(&bind_addr, port).await {
                 eprintln!("Coordinator error: {}", e);
             }
         }

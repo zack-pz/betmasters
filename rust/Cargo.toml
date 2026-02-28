@@ -12,6 +12,5 @@ tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-native-roots"] }
 futures-util = "0.3"
-clap = { version = "4.5.30", features = ["derive", "env"] }
 num-traits = "0.2.19"
 num-complex = "0.4.6"
