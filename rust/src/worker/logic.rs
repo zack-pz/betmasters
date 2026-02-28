@@ -15,7 +15,7 @@ impl Worker {
         }
     }
 
-    pub async fn run(&self, _bind_addr: &str, _port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         let client = Client::new();
         println!("Worker started, connecting to {}", self.coordinator_url);
 

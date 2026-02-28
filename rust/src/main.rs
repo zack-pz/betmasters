@@ -39,9 +39,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         env::var("COORDINATOR_URL").unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
 
     if role == "worker" {
-        let port = port_env.unwrap_or(8081);
         let worker = Worker::new(coordinator_url);
-        if let Err(e) = worker.run(&bind_addr, port).await {
+        if let Err(e) = worker.run().await {
             eprintln!("Worker error: {}", e);
         }
     } else {
