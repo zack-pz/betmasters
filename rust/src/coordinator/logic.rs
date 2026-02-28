@@ -13,7 +13,7 @@ use crate::coordinator::types::{CoordinatorCommand, InternalMessage, Task};
 use crate::coordinator::handlers::{get_task, submit_result, hello, root_hello};
 
 pub struct Coordinator {
-    pub storage: Vec<Vec<f64>>,
+    pub storage: Vec<u32>,
     width: u32,
     height: u32,
     tasks: VecDeque<Task>,
@@ -40,7 +40,7 @@ impl Coordinator {
         }
 
         Self {
-            storage: vec![vec![0.0; height as usize]; width as usize],
+            storage: vec![0; (width * height) as usize],
             width,
             height,
             tasks,
@@ -58,8 +58,8 @@ impl Coordinator {
         let app = Router::new()
             .route("/", get(root_hello))
             .route("/hello", post(hello))
-            .route("/get_task", get(get_task))
-            .route("/submit_result", post(submit_result))
+            .route("/work", get(get_task))
+            .route("/results", post(submit_result))
             .with_state(app_state);
 
         let addr: SocketAddr = format!("{}:{}", bind_addr, port).parse()?;
@@ -174,20 +174,16 @@ impl Coordinator {
                         }
                         InternalMessage::WorkerFinished { task_id, data } => {
                             self.last_worker_activity = Some(Instant::now());
-                            if self.assigned_tasks.remove(&task_id).is_some() {
-                                let start_row = (task_id * 10) as usize;
-                                
+                            if let Some((task, _)) = self.assigned_tasks.remove(&task_id) {
                                 info!("Received result for task {}. Merging data...", task_id);
                                 
-                                for (i, row_data) in data.into_iter().enumerate() {
-                                    let target_row = start_row + i;
-                                    if target_row < self.height as usize {
-                                        for (col, &val) in row_data.iter().enumerate() {
-                                            if col < self.width as usize {
-                                                self.storage[col][target_row] = val;
-                                            }
-                                        }
-                                    }
+                                let start_idx = (task.start_row * self.width) as usize;
+                                let len = data.len();
+                                
+                                if start_idx + len <= self.storage.len() {
+                                    self.storage[start_idx..start_idx + len].copy_from_slice(&data);
+                                } else {
+                                    warn!("Received result for task {} exceeds storage bounds.", task_id);
                                 }
                             } else {
                                 warn!("Received result for task {} but it was not in assigned list.", task_id);

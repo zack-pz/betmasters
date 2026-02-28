@@ -8,10 +8,10 @@ impl Worker {
         Self {
             coordinator_url,
             max_iters: 1000,
-            x_min: vec![-2.0],
-            x_max: vec![1.0],
-            y_min: vec![-1.5],
-            y_max: vec![1.5],
+            x_min: -2.0,
+            x_max: 1.0,
+            y_min: -1.5,
+            y_max: 1.5,
         }
     }
 

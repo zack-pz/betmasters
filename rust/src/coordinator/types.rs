@@ -19,7 +19,7 @@ pub enum WorkerMessage {
     Hello(String),
     ComputeResult {
         task_id: u32,
-        data: Vec<Vec<f64>>,
+        data: Vec<u32>,
     },
 }
 
@@ -35,7 +35,7 @@ pub enum InternalMessage {
     WorkerSaidHello(String),
     WorkerFinished {
         task_id: u32,
-        data: Vec<Vec<f64>>,
+        data: Vec<u32>,
     },
     StartExecution,
 }
