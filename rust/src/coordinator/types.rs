@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -27,6 +28,15 @@ pub(crate) struct Task {
     pub id: u32,
     pub start_row: u32,
     pub end_row: u32,
+}
+
+/// Estado completo de un worker conectado. Fuente de verdad única para toda
+/// la información asociada a un worker — canal de comandos, tarea actual y timestamp.
+#[derive(Debug)]
+pub struct WorkerState {
+    pub tx: mpsc::UnboundedSender<CoordinatorCommand>,
+    pub current_task_id: Option<u32>,
+    pub assigned_at: Option<Instant>,
 }
 
 #[allow(clippy::enum_variant_names)]

@@ -8,7 +8,7 @@ use tokio::task::spawn_blocking;
 use tokio::time::interval;
 
 use crate::coordinator::handlers::{root_hello, ws_handler};
-use crate::coordinator::types::{CoordinatorCommand, InternalMessage, Task};
+use crate::coordinator::types::{CoordinatorCommand, InternalMessage, Task, WorkerState};
 
 pub struct Coordinator {
     pub storage: Vec<u32>,
@@ -16,15 +16,10 @@ pub struct Coordinator {
     height: u32,
     max_iters: u32,
     tasks: VecDeque<Task>,
-    assigned_tasks: HashMap<u32, (Task, Instant)>,
-    // alias -> task_id asignado actualmente
-    worker_tasks: HashMap<String, u32>,
-    // alias -> canal para enviarle comandos
-    connected_workers: HashMap<String, mpsc::UnboundedSender<CoordinatorCommand>>,
-    // workers disponibles sin tarea
+    assigned_tasks: HashMap<u32, Task>,
+    workers: HashMap<String, WorkerState>,
     idle_workers: VecDeque<String>,
     started: bool,
-    workers_count: usize,
     next_worker_num: usize,
 }
 
@@ -45,11 +40,9 @@ impl Coordinator {
             max_iters: 1000,
             tasks,
             assigned_tasks: HashMap::new(),
-            worker_tasks: HashMap::new(),
-            connected_workers: HashMap::new(),
+            workers: HashMap::new(),
             idle_workers: VecDeque::new(),
             started: false,
-            workers_count: 0,
             next_worker_num: 0,
         }
     }
@@ -60,7 +53,7 @@ impl Coordinator {
             let alias = self.idle_workers.pop_front().unwrap();
             let task = self.tasks.pop_front().unwrap();
 
-            let sent = if let Some(tx) = self.connected_workers.get(&alias) {
+            let sent = if let Some(state) = self.workers.get(&alias) {
                 let cmd = CoordinatorCommand::Compute {
                     task_id: task.id,
                     width: self.width,
@@ -68,7 +61,7 @@ impl Coordinator {
                     start_row: task.start_row,
                     end_row: task.end_row,
                 };
-                tx.send(cmd).is_ok()
+                state.tx.send(cmd).is_ok()
             } else {
                 false
             };
@@ -78,11 +71,14 @@ impl Coordinator {
                     "Task {} (rows {}-{}) → worker {}",
                     task.id, task.start_row, task.end_row, alias
                 );
-                self.worker_tasks.insert(alias, task.id);
-                self.assigned_tasks.insert(task.id, (task, Instant::now()));
+                if let Some(state) = self.workers.get_mut(&alias) {
+                    state.current_task_id = Some(task.id);
+                    state.assigned_at = Some(Instant::now());
+                }
+                self.assigned_tasks.insert(task.id, task);
             } else {
                 // Canal cerrado: descartamos el worker y devolvemos la tarea
-                self.connected_workers.remove(&alias);
+                self.workers.remove(&alias);
                 self.tasks.push_front(task);
             }
         }
@@ -90,23 +86,26 @@ impl Coordinator {
 
     /// Detecta tareas que excedieron el timeout y las reencola.
     fn check_and_requeue_timed_out_tasks(&mut self, now: Instant) {
-        let mut timed_out = Vec::new();
-        for (&id, (_, assigned_at)) in &self.assigned_tasks {
-            if now.duration_since(*assigned_at) > Duration::from_secs(3) {
-                timed_out.push(id);
-            }
-        }
-
-        for id in timed_out {
-            if let Some((task, _)) = self.assigned_tasks.remove(&id) {
-                warn!("Task {} timed out. Re-queuing.", id);
-                let stale_worker = self.worker_tasks.iter()
-                    .find(|(_, &v)| v == id)
-                    .map(|(k, _)| k.clone());
-                if let Some(w) = stale_worker {
-                    self.worker_tasks.remove(&w);
-                    self.idle_workers.push_back(w);
+        let timed_out: Vec<(String, u32)> = self.workers.iter()
+            .filter_map(|(alias, state)| {
+                let task_id = state.current_task_id?;
+                let assigned_at = state.assigned_at?;
+                if now.duration_since(assigned_at) > Duration::from_secs(3) {
+                    Some((alias.clone(), task_id))
+                } else {
+                    None
                 }
+            })
+            .collect();
+
+        for (alias, task_id) in timed_out {
+            if let Some(task) = self.assigned_tasks.remove(&task_id) {
+                warn!("Task {} timed out. Re-queuing.", task_id);
+                if let Some(state) = self.workers.get_mut(&alias) {
+                    state.current_task_id = None;
+                    state.assigned_at = None;
+                }
+                self.idle_workers.push_back(alias);
                 self.tasks.push_back(task);
             }
         }
@@ -121,11 +120,14 @@ impl Coordinator {
         match msg {
             InternalMessage::WorkerConnected { tx: worker_tx, alias_tx } => {
                 self.next_worker_num += 1;
-                self.workers_count += 1;
                 let alias = format!("worker-{}", self.next_worker_num);
-                info!("Worker '{}' connected (total: {})", alias, self.workers_count);
-                self.connected_workers.insert(alias.clone(), worker_tx);
+                self.workers.insert(alias.clone(), WorkerState {
+                    tx: worker_tx,
+                    current_task_id: None,
+                    assigned_at: None,
+                });
                 self.idle_workers.push_back(alias.clone());
+                info!("Worker '{}' connected (total: {})", alias, self.workers.len());
                 let _ = alias_tx.send(alias);
                 if self.started {
                     self.assign_tasks_to_idle_workers();
@@ -133,13 +135,13 @@ impl Coordinator {
             }
 
             InternalMessage::WorkerDisconnected { alias } => {
-                self.workers_count = self.workers_count.saturating_sub(1);
-                warn!("Worker '{}' disconnected (total: {})", alias, self.workers_count);
-                self.connected_workers.remove(&alias);
+                let current_task_id = self.workers.get(&alias).and_then(|s| s.current_task_id);
+                self.workers.remove(&alias);
                 self.idle_workers.retain(|id| id != &alias);
+                warn!("Worker '{}' disconnected (total: {})", alias, self.workers.len());
 
-                if let Some(task_id) = self.worker_tasks.remove(&alias) {
-                    if let Some((task, _)) = self.assigned_tasks.remove(&task_id) {
+                if let Some(task_id) = current_task_id {
+                    if let Some(task) = self.assigned_tasks.remove(&task_id) {
                         warn!("Re-queuing task {} from disconnected worker '{}'", task_id, alias);
                         self.tasks.push_back(task);
                     }
@@ -147,10 +149,12 @@ impl Coordinator {
             }
 
             InternalMessage::WorkerFinished { task_id, alias, data } => {
-                if let Some((task, _)) = self.assigned_tasks.remove(&task_id) {
+                if let Some(task) = self.assigned_tasks.remove(&task_id) {
                     info!("Task {} done by worker '{}'. Merging data...", task_id, alias);
-                    self.worker_tasks.remove(&alias);
-
+                    if let Some(state) = self.workers.get_mut(&alias) {
+                        state.current_task_id = None;
+                        state.assigned_at = None;
+                    }
 
                     let start_idx = (task.start_row * self.width) as usize;
                     let len = data.len();
@@ -231,7 +235,7 @@ impl Coordinator {
                         self.started = true;
                         info!(
                             "--- STARTING EXECUTION (auto-start timeout) --- ({} workers connected)",
-                            self.workers_count
+                            self.workers.len()
                         );
                         self.assign_tasks_to_idle_workers();
                         last_worker_connection = Instant::now();
@@ -253,6 +257,14 @@ impl Coordinator {
     }
 }
 
+/// Polinomios de Bernstein para mapeo de iteraciones a colores.
+/// Basados en un gradiente suave que va de colores brillantes (rápida divergencia)
+/// a negro (puntos dentro del conjunto de Mandelbrot).
+const COLOR_COEFF_RED: f64 = 9.0;
+const COLOR_COEFF_GREEN: f64 = 15.0;
+const COLOR_COEFF_BLUE: f64 = 8.5;
+const COLOR_MAX_INTENSITY: f64 = 255.0;
+
 /// Mapea un conteo de iteraciones a un color RGB usando polinomios de Bernstein.
 /// Puntos dentro del conjunto (iter == max_iters) se pintan de negro.
 fn iter_to_color(iter: u32, max_iters: u32) -> image::Rgb<u8> {
@@ -260,9 +272,9 @@ fn iter_to_color(iter: u32, max_iters: u32) -> image::Rgb<u8> {
         return image::Rgb([0, 0, 0]);
     }
     let t = iter as f64 / max_iters as f64;
-    let r = (9.0 * (1.0 - t) * t * t * t * 255.0) as u8;
-    let g = (15.0 * (1.0 - t) * (1.0 - t) * t * t * 255.0) as u8;
-    let b = (8.5 * (1.0 - t) * (1.0 - t) * (1.0 - t) * t * 255.0) as u8;
+    let r = (COLOR_COEFF_RED * (1.0 - t) * t * t * t * COLOR_MAX_INTENSITY) as u8;
+    let g = (COLOR_COEFF_GREEN * (1.0 - t) * (1.0 - t) * t * t * COLOR_MAX_INTENSITY) as u8;
+    let b = (COLOR_COEFF_BLUE * (1.0 - t) * (1.0 - t) * (1.0 - t) * t * COLOR_MAX_INTENSITY) as u8;
     image::Rgb([r, g, b])
 }
 
