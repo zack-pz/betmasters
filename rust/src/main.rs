@@ -31,22 +31,38 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let role = env::var("APP_ROLE").unwrap_or_else(|_| "coordinator".to_string());
-    let bind_addr = env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0".to_string());
-    let port_env = env::var("PORT").ok().and_then(|s| s.parse::<u16>().ok());
+fn env_string(key: &str, default: &str) -> String {
+    env::var(key).unwrap_or_else(|_| default.to_string())
+}
 
-    let coordinator_url =
-        env::var("COORDINATOR_URL").unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
+fn parse_env<T: std::str::FromStr>(key: &str, default: T) -> T {
+    env::var(key).ok().and_then(|s| s.parse().ok()).unwrap_or(default)
+}
+
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let role = env_string("APP_ROLE", "coordinator");
+    let bind_addr = env_string("BIND_ADDR", "0.0.0.0");
+    let port = parse_env("PORT", 8080u16);
+    let coordinator_url = env_string("COORDINATOR_URL", "http://127.0.0.1:8080");
 
     if role == "worker" {
-        let worker = Worker::new(coordinator_url);
+        let max_iters = parse_env("MAX_ITERS", 1000usize);
+        let x_min = parse_env("X_MIN", -2.0f64);
+        let x_max = parse_env("X_MAX", 1.0f64);
+        let y_min = parse_env("Y_MIN", -1.5f64);
+        let y_max = parse_env("Y_MAX", 1.5f64);
+
+        let worker = Worker::new(coordinator_url, max_iters, x_min, x_max, y_min, y_max);
         if let Err(e) = worker.run().await {
             error!("Worker error: {}", e);
         }
     } else {
-        let port = port_env.unwrap_or(8080);
-        let coordinator = Coordinator::new(3840, 2160);
+        let width = parse_env("IMAGE_WIDTH", 3840u32);
+        let height = parse_env("IMAGE_HEIGHT", 2160u32);
+        let block_size = parse_env("BLOCK_SIZE", 100u32);
+        let max_iters = parse_env("MAX_ITERS", 1000u32);
+
+        let coordinator = Coordinator::new(width, height, block_size, max_iters);
         if let Err(e) = coordinator.run(&bind_addr, port).await {
             error!("Coordinator error: {}", e);
         }

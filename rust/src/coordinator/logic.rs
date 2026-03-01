@@ -24,8 +24,7 @@ pub struct Coordinator {
 }
 
 impl Coordinator {
-    pub fn new(width: u32, height: u32) -> Self {
-        let block_size = 100;
+    pub fn new(width: u32, height: u32, block_size: u32, max_iters: u32) -> Self {
         let mut tasks = VecDeque::new();
 
         for (task_id, start_row) in (0..height).step_by(block_size as usize).enumerate() {
@@ -37,7 +36,7 @@ impl Coordinator {
             storage: vec![0; (width * height) as usize],
             width,
             height,
-            max_iters: 1000,
+            max_iters,
             tasks,
             assigned_tasks: HashMap::new(),
             workers: HashMap::new(),

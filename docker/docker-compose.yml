@@ -3,11 +3,13 @@ services:
   coordinator:
     build: ../rust/.
     container_name: con
-    stdin_open: true # Mantiene el stdin abierto (equivalente a -i)
-    tty: true        # Asigna una pseudo-terminal (equivalente a -t)
     environment:
       - APP_ROLE=coordinator
       - PORT=8080
+      - IMAGE_WIDTH=${IMAGE_WIDTH}
+      - IMAGE_HEIGHT=${IMAGE_HEIGHT}
+      - BLOCK_SIZE=${BLOCK_SIZE}
+      - MAX_ITERS=${MAX_ITERS}
     ports:
     - "8080:8080"
 
@@ -17,6 +19,11 @@ services:
       - APP_ROLE=worker
       - PORT=8081
       - COORDINATOR_URL=http://coordinator:8080
+      - MAX_ITERS=${MAX_ITERS}
+      - X_MIN=${X_MIN}
+      - X_MAX=${X_MAX}
+      - Y_MIN=${Y_MIN}
+      - Y_MAX=${Y_MAX}
     ports:
       - "8081:8081"
     depends_on:
@@ -28,6 +35,11 @@ services:
       - APP_ROLE=worker
       - PORT=8082
       - COORDINATOR_URL=http://coordinator:8080
+      - MAX_ITERS=${MAX_ITERS}
+      - X_MIN=${X_MIN}
+      - X_MAX=${X_MAX}
+      - Y_MIN=${Y_MIN}
+      - Y_MAX=${Y_MAX}
     ports:
       - "8082:8082"
     depends_on:
@@ -39,6 +51,11 @@ services:
       - APP_ROLE=worker
       - PORT=8083
       - COORDINATOR_URL=http://coordinator:8080
+      - MAX_ITERS=${MAX_ITERS}
+      - X_MIN=${X_MIN}
+      - X_MAX=${X_MAX}
+      - Y_MIN=${Y_MIN}
+      - Y_MAX=${Y_MAX}
     ports:
       - "8083:8083"
     depends_on:
@@ -50,6 +67,11 @@ services:
       - APP_ROLE=worker
       - PORT=8084
       - COORDINATOR_URL=http://coordinator:8080
+      - MAX_ITERS=${MAX_ITERS}
+      - X_MIN=${X_MIN}
+      - X_MAX=${X_MAX}
+      - Y_MIN=${Y_MIN}
+      - Y_MAX=${Y_MAX}
     ports:
       - "8084:8084"
     depends_on:
@@ -61,6 +83,11 @@ services:
       - APP_ROLE=worker
       - PORT=8085
       - COORDINATOR_URL=http://coordinator:8080
+      - MAX_ITERS=${MAX_ITERS}
+      - X_MIN=${X_MIN}
+      - X_MAX=${X_MAX}
+      - Y_MIN=${Y_MIN}
+      - Y_MAX=${Y_MAX}
     ports:
       - "8085:8085"
     depends_on:
@@ -72,6 +99,11 @@ services:
       - APP_ROLE=worker
       - PORT=8086
       - COORDINATOR_URL=http://coordinator:8080
+      - MAX_ITERS=${MAX_ITERS}
+      - X_MIN=${X_MIN}
+      - X_MAX=${X_MAX}
+      - Y_MIN=${Y_MIN}
+      - Y_MAX=${Y_MAX}
     ports:
       - "8086:8086"
     depends_on:
@@ -83,6 +115,11 @@ services:
       - APP_ROLE=worker
       - PORT=8087
       - COORDINATOR_URL=http://coordinator:8080
+      - MAX_ITERS=${MAX_ITERS}
+      - X_MIN=${X_MIN}
+      - X_MAX=${X_MAX}
+      - Y_MIN=${Y_MIN}
+      - Y_MAX=${Y_MAX}
     ports:
       - "8087:8087"
     depends_on:
@@ -94,6 +131,11 @@ services:
       - APP_ROLE=worker
       - PORT=8088
       - COORDINATOR_URL=http://coordinator:8080
+      - MAX_ITERS=${MAX_ITERS}
+      - X_MIN=${X_MIN}
+      - X_MAX=${X_MAX}
+      - Y_MIN=${Y_MIN}
+      - Y_MAX=${Y_MAX}
     ports:
       - "8088:8088"
     depends_on:
@@ -105,6 +147,11 @@ services:
       - APP_ROLE=worker
       - PORT=8089
       - COORDINATOR_URL=http://coordinator:8080
+      - MAX_ITERS=${MAX_ITERS}
+      - X_MIN=${X_MIN}
+      - X_MAX=${X_MAX}
+      - Y_MIN=${Y_MIN}
+      - Y_MAX=${Y_MAX}
     ports:
       - "8089:8089"
     depends_on:

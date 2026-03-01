@@ -9,15 +9,15 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, Web
 type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 impl Worker {
-    pub fn new(coordinator_url: String) -> Self {
-        Self {
-            coordinator_url,
-            max_iters: 1000,
-            x_min: -2.0,
-            x_max: 1.0,
-            y_min: -1.5,
-            y_max: 1.5,
-        }
+    pub fn new(
+        coordinator_url: String,
+        max_iters: usize,
+        x_min: f64,
+        x_max: f64,
+        y_min: f64,
+        y_max: f64,
+    ) -> Self {
+        Self { coordinator_url, max_iters, x_min, x_max, y_min, y_max }
     }
 
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
