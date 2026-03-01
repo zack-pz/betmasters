@@ -1,7 +1,8 @@
-use crate::worker::types::Worker;
-use std::time::Duration;
-use reqwest::Client;
 use crate::coordinator::types::{CoordinatorCommand, WorkerMessage};
+use crate::worker::types::Worker;
+use futures_util::{SinkExt, StreamExt};
+use std::time::Duration;
+use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 impl Worker {
     pub fn new(coordinator_url: String) -> Self {
@@ -16,50 +17,81 @@ impl Worker {
     }
 
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let client = Client::new();
-        println!("Worker started, connecting to {}", self.coordinator_url);
+        // Convertir http:// → ws://  y  https:// → wss://
+        let ws_url = self
+            .coordinator_url
+            .replace("https://", "wss://")
+            .replace("http://", "ws://");
+        let ws_url = format!("{}/ws", ws_url);
+
+        let worker_id = format!("worker-{}", std::process::id());
+        println!("Worker '{}' starting, connecting to {}", worker_id, ws_url);
 
         loop {
-            // Solicitar trabajo al coordinador
-            let res = client.get(format!("{}/get_task", self.coordinator_url))
-                .send()
-                .await;
+            match connect_async(&ws_url).await {
+                Ok((mut stream, _)) => {
+                    println!("Connected to coordinator.");
 
-            match res {
-                Ok(response) => {
-                    if response.status().is_success() {
-                        let command: CoordinatorCommand = response.json().await?;
-                        
-                        match command {
-                            CoordinatorCommand::Compute { task_id, width, height, start_row, end_row } => {
-                                // Realizar el cálculo
-                                let data = self.compute_block(width, height, start_row, end_row);
-                                
-                                // Enviar resultados
-                                let result = WorkerMessage::ComputeResult {
-                                    task_id,
-                                    data,
-                                };
+                    // Enviar Hello con el ID del worker
+                    let hello = serde_json::to_string(&WorkerMessage::Hello(worker_id.clone()))?;
+                    if stream.send(Message::Text(hello.into())).await.is_err() {
+                        eprintln!("Failed to send Hello. Reconnecting in 2s...");
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        continue;
+                    }
 
-                                let _ = client.post(format!("{}/submit_result", self.coordinator_url))
-                                    .json(&result)
-                                    .send()
-                                    .await;
+                    // Esperar y procesar comandos del coordinator
+                    while let Some(msg) = stream.next().await {
+                        match msg {
+                            Ok(Message::Text(text)) => {
+                                match serde_json::from_str::<CoordinatorCommand>(&text) {
+                                    Ok(CoordinatorCommand::Compute {
+                                        task_id,
+                                        width,
+                                        height,
+                                        start_row,
+                                        end_row,
+                                    }) => {
+                                        let data =
+                                            self.compute_block(width, height, start_row, end_row);
+                                        let result = WorkerMessage::ComputeResult { task_id, data };
+                                        let text = serde_json::to_string(&result)?;
+                                        if stream.send(Message::Text(text.into())).await.is_err() {
+                                            eprintln!("Failed to send result. Reconnecting...");
+                                            break;
+                                        }
+                                    }
+                                    Ok(CoordinatorCommand::Welcome(msg)) => {
+                                        println!("Coordinator: {}", msg);
+                                    }
+                                    Ok(CoordinatorCommand::Wait) => {
+                                        // El coordinator nos dirá cuándo hay trabajo
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Failed to parse command: {}", e);
+                                    }
+                                }
                             }
-                            _ => {
-                                // Si no hay trabajo, esperamos un poco
-                                tokio::time::sleep(Duration::from_secs(1)).await;
+                            Ok(Message::Close(_)) => {
+                                println!("Coordinator closed connection.");
+                                break;
                             }
+                            Err(e) => {
+                                eprintln!("WebSocket error: {}", e);
+                                break;
+                            }
+                            _ => {}
                         }
                     }
+
+                    eprintln!("Disconnected. Reconnecting in 2s...");
+                    tokio::time::sleep(Duration::from_secs(2)).await;
                 }
                 Err(e) => {
-                    eprintln!("Error connecting to coordinator: {}. Retrying in 2s...", e);
+                    eprintln!("Connection error: {}. Retrying in 2s...", e);
                     tokio::time::sleep(Duration::from_secs(2)).await;
                 }
             }
-            
-            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 }

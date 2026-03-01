@@ -12,5 +12,6 @@ rust/target
 .idea
 
 GEMINI.md
-
+CLAUDE.md
+.claude
 .gemini
