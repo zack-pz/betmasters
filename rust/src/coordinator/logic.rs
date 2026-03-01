@@ -85,9 +85,97 @@ impl Coordinator {
         }
     }
 
-    pub async fn run(mut self, bind_addr: &str, port: u16) -> Result<(), Box<dyn std::error::Error>> {
-        let (tx, mut rx) = mpsc::channel::<InternalMessage>(100);
+    /// Detecta tareas que excedieron el timeout y las reencola.
+    fn check_and_requeue_timed_out_tasks(&mut self, now: Instant) {
+        let mut timed_out = Vec::new();
+        for (&id, (_, assigned_at)) in &self.assigned_tasks {
+            if now.duration_since(*assigned_at) > Duration::from_secs(3) {
+                timed_out.push(id);
+            }
+        }
 
+        for id in timed_out {
+            if let Some((task, _)) = self.assigned_tasks.remove(&id) {
+                warn!("Task {} timed out. Re-queuing.", id);
+                let stale_worker = self.worker_tasks.iter()
+                    .find(|(_, &v)| v == id)
+                    .map(|(k, _)| k.clone());
+                if let Some(w) = stale_worker {
+                    self.worker_tasks.remove(&w);
+                    self.idle_workers.push_back(w);
+                }
+                self.tasks.push_back(task);
+            }
+        }
+
+        if self.started {
+            self.assign_tasks_to_idle_workers();
+        }
+    }
+
+    /// Procesa un mensaje interno y actualiza el estado del coordinador.
+    fn handle_internal_message(&mut self, msg: InternalMessage) {
+        match msg {
+            InternalMessage::StartExecution => {
+                if !self.started {
+                    self.started = true;
+                    info!("--- STARTING EXECUTION --- ({} workers connected)", self.workers_count);
+                    self.assign_tasks_to_idle_workers();
+                }
+            }
+
+            InternalMessage::WorkerConnected { worker_id, tx: worker_tx } => {
+                self.workers_count += 1;
+                info!("Worker '{}' connected (total: {})", worker_id, self.workers_count);
+                self.connected_workers.insert(worker_id.clone(), worker_tx);
+                self.idle_workers.push_back(worker_id);
+                if self.started {
+                    self.assign_tasks_to_idle_workers();
+                }
+            }
+
+            InternalMessage::WorkerDisconnected { worker_id } => {
+                self.workers_count = self.workers_count.saturating_sub(1);
+                warn!("Worker '{}' disconnected (total: {})", worker_id, self.workers_count);
+                self.connected_workers.remove(&worker_id);
+                self.idle_workers.retain(|id| id != &worker_id);
+
+                if let Some(task_id) = self.worker_tasks.remove(&worker_id) {
+                    if let Some((task, _)) = self.assigned_tasks.remove(&task_id) {
+                        warn!("Re-queuing task {} from disconnected worker '{}'", task_id, worker_id);
+                        self.tasks.push_back(task);
+                    }
+                }
+            }
+
+            InternalMessage::WorkerFinished { task_id, worker_id, data } => {
+                if let Some((task, _)) = self.assigned_tasks.remove(&task_id) {
+                    info!("Task {} done by worker '{}'. Merging data...", task_id, worker_id);
+                    self.worker_tasks.remove(&worker_id);
+
+                    let start_idx = (task.start_row * self.width) as usize;
+                    let len = data.len();
+                    if start_idx + len <= self.storage.len() {
+                        self.storage[start_idx..start_idx + len].copy_from_slice(&data);
+                    } else {
+                        warn!("Task {} result exceeds storage bounds.", task_id);
+                    }
+
+                    if self.tasks.is_empty() && self.assigned_tasks.is_empty() {
+                        info!("All tasks completed!");
+                    } else {
+                        self.idle_workers.push_back(worker_id);
+                        self.assign_tasks_to_idle_workers();
+                    }
+                } else {
+                    warn!("Received result for unknown task {}.", task_id);
+                }
+            }
+        }
+    }
+
+    /// Inicia el servidor HTTP y listener para conexiones de workers.
+    async fn start_server(&self, bind_addr: &str, port: u16, tx: &mpsc::Sender<InternalMessage>) -> Result<(), Box<dyn std::error::Error>> {
         let app = Router::new()
             .route("/", get(root_hello))
             .route("/ws", get(ws_handler))
@@ -105,17 +193,7 @@ impl Coordinator {
             "Coordinator listening on {} (Local IP: {}) with {} tasks pending",
             addr, local_ip, self.tasks.len()
         );
-        info!("Waiting for workers to join... Press ENTER to start execution once ready.");
-
-        // Detectar ENTER en stdin para iniciar ejecución
-        let stdin_tx = tx.clone();
-        tokio::spawn(async move {
-            use tokio::io::AsyncBufReadExt;
-            let mut reader = tokio::io::BufReader::new(tokio::io::stdin());
-            let mut line = String::new();
-            let _ = reader.read_line(&mut line).await;
-            let _ = stdin_tx.send(InternalMessage::StartExecution).await;
-        });
+        info!("Waiting for workers to join... Execution will start automatically after 10 seconds without new connections.");
 
         tokio::spawn(async move {
             if let Err(e) = axum::serve(listener, app).await {
@@ -123,105 +201,48 @@ impl Coordinator {
             }
         });
 
+        Ok(())
+    }
+
+    pub async fn run(mut self, bind_addr: &str, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+        let (tx, mut rx) = mpsc::channel::<InternalMessage>(100);
+
+        self.start_server(bind_addr, port, &tx).await?;
+
         let mut check_interval = interval(Duration::from_secs(1));
+        let mut last_worker_connection = Instant::now();
+        let worker_registration_timeout = Duration::from_secs(10);
 
         loop {
             tokio::select! {
                 _ = check_interval.tick() => {
-                    let now = Instant::now();
+                    self.check_and_requeue_timed_out_tasks(Instant::now());
 
-                    // Re-encolar tareas que llevan más de 3 segundos asignadas
-                    let mut timed_out = Vec::new();
-                    for (&id, (_, assigned_at)) in &self.assigned_tasks {
-                        if now.duration_since(*assigned_at) > Duration::from_secs(3) {
-                            timed_out.push(id);
+                    // Auto-start if 10 seconds pass without new worker connections
+                    if !self.started {
+                        if Instant::now().duration_since(last_worker_connection) >= worker_registration_timeout {
+                            self.started = true;
+                            info!(
+                                "--- STARTING EXECUTION (auto-start timeout) --- ({} workers connected)",
+                                self.workers_count
+                            );
+                            self.assign_tasks_to_idle_workers();
+                            last_worker_connection = Instant::now();
                         }
-                    }
-                    for id in timed_out {
-                        if let Some((task, _)) = self.assigned_tasks.remove(&id) {
-                            warn!("Task {} timed out. Re-queuing.", id);
-                            // Liberar al worker que la tenía (si sigue conectado)
-                            let stale_worker = self.worker_tasks.iter()
-                                .find(|(_, &v)| v == id)
-                                .map(|(k, _)| k.clone());
-                            if let Some(w) = stale_worker {
-                                self.worker_tasks.remove(&w);
-                                self.idle_workers.push_back(w);
-                            }
-                            self.tasks.push_back(task);
-                        }
-                    }
-                    // Re-asignar si hay workers libres tras re-encolar
-                    if self.started {
-                        self.assign_tasks_to_idle_workers();
                     }
                 }
 
                 msg = rx.recv() => {
-                    let Some(msg) = msg else { break; };
-                    match msg {
-                        InternalMessage::StartExecution => {
-                            if !self.started {
-                                self.started = true;
-                                info!("--- STARTING EXECUTION --- ({} workers connected)", self.workers_count);
-                                self.assign_tasks_to_idle_workers();
-                            }
-                        }
+                    let Some(msg) = msg else { break Ok(()); };
 
-                        InternalMessage::WorkerConnected { worker_id, tx: worker_tx } => {
-                            self.workers_count += 1;
-                            info!("Worker '{}' connected (total: {})", worker_id, self.workers_count);
-                            self.connected_workers.insert(worker_id.clone(), worker_tx);
-                            self.idle_workers.push_back(worker_id);
-                            if self.started {
-                                self.assign_tasks_to_idle_workers();
-                            }
-                        }
-
-                        InternalMessage::WorkerDisconnected { worker_id } => {
-                            self.workers_count = self.workers_count.saturating_sub(1);
-                            warn!("Worker '{}' disconnected (total: {})", worker_id, self.workers_count);
-                            self.connected_workers.remove(&worker_id);
-                            self.idle_workers.retain(|id| id != &worker_id);
-
-                            // Re-encolar tarea si el worker estaba trabajando
-                            if let Some(task_id) = self.worker_tasks.remove(&worker_id) {
-                                if let Some((task, _)) = self.assigned_tasks.remove(&task_id) {
-                                    warn!("Re-queuing task {} from disconnected worker '{}'", task_id, worker_id);
-                                    self.tasks.push_back(task);
-                                }
-                            }
-                        }
-
-                        InternalMessage::WorkerFinished { task_id, worker_id, data } => {
-                            if let Some((task, _)) = self.assigned_tasks.remove(&task_id) {
-                                info!("Task {} done by worker '{}'. Merging data...", task_id, worker_id);
-                                self.worker_tasks.remove(&worker_id);
-
-                                let start_idx = (task.start_row * self.width) as usize;
-                                let len = data.len();
-                                if start_idx + len <= self.storage.len() {
-                                    self.storage[start_idx..start_idx + len].copy_from_slice(&data);
-                                } else {
-                                    warn!("Task {} result exceeds storage bounds.", task_id);
-                                }
-
-                                if self.tasks.is_empty() && self.assigned_tasks.is_empty() {
-                                    info!("All tasks completed!");
-                                } else {
-                                    // El worker queda libre: asignarle la siguiente tarea
-                                    self.idle_workers.push_back(worker_id);
-                                    self.assign_tasks_to_idle_workers();
-                                }
-                            } else {
-                                warn!("Received result for unknown task {}.", task_id);
-                            }
-                        }
+                    // Reset auto-start timer when a worker connects
+                    if matches!(msg, InternalMessage::WorkerConnected { .. }) {
+                        last_worker_connection = Instant::now();
                     }
+
+                    self.handle_internal_message(msg);
                 }
             }
         }
-
-        Ok(())
     }
 }
