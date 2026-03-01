@@ -22,8 +22,6 @@ pub struct Coordinator {
     connected_workers: HashMap<String, mpsc::UnboundedSender<CoordinatorCommand>>,
     // workers disponibles sin tarea
     idle_workers: VecDeque<String>,
-    // original_id (del Hello) -> alias secuencial (worker-1, worker-2, ...)
-    worker_aliases: HashMap<String, String>,
     started: bool,
     workers_count: usize,
     next_worker_num: usize,
@@ -51,7 +49,6 @@ impl Coordinator {
             worker_tasks: HashMap::new(),
             connected_workers: HashMap::new(),
             idle_workers: VecDeque::new(),
-            worker_aliases: HashMap::new(),
             started: false,
             workers_count: 0,
             next_worker_num: 0,
@@ -123,29 +120,20 @@ impl Coordinator {
     /// Procesa un mensaje interno y actualiza el estado del coordinador.
     fn handle_internal_message(&mut self, msg: InternalMessage) {
         match msg {
-            InternalMessage::StartExecution => {
-                if !self.started {
-                    self.started = true;
-                    info!("--- STARTING EXECUTION --- ({} workers connected)", self.workers_count);
-                    self.assign_tasks_to_idle_workers();
-                }
-            }
-
-            InternalMessage::WorkerConnected { worker_id, tx: worker_tx } => {
+            InternalMessage::WorkerConnected { tx: worker_tx, alias_tx } => {
                 self.next_worker_num += 1;
                 self.workers_count += 1;
                 let alias = format!("worker-{}", self.next_worker_num);
-                self.worker_aliases.insert(worker_id, alias.clone());
                 info!("Worker '{}' connected (total: {})", alias, self.workers_count);
                 self.connected_workers.insert(alias.clone(), worker_tx);
-                self.idle_workers.push_back(alias);
+                self.idle_workers.push_back(alias.clone());
+                let _ = alias_tx.send(alias);
                 if self.started {
                     self.assign_tasks_to_idle_workers();
                 }
             }
 
-            InternalMessage::WorkerDisconnected { worker_id } => {
-                let alias = self.worker_aliases.remove(&worker_id).unwrap_or(worker_id);
+            InternalMessage::WorkerDisconnected { alias } => {
                 self.workers_count = self.workers_count.saturating_sub(1);
                 warn!("Worker '{}' disconnected (total: {})", alias, self.workers_count);
                 self.connected_workers.remove(&alias);
@@ -159,11 +147,11 @@ impl Coordinator {
                 }
             }
 
-            InternalMessage::WorkerFinished { task_id, worker_id, data } => {
-                let alias = self.worker_aliases.get(&worker_id).cloned().unwrap_or(worker_id);
+            InternalMessage::WorkerFinished { task_id, alias, data } => {
                 if let Some((task, _)) = self.assigned_tasks.remove(&task_id) {
                     info!("Task {} done by worker '{}'. Merging data...", task_id, alias);
                     self.worker_tasks.remove(&alias);
+
 
                     let start_idx = (task.start_row * self.width) as usize;
                     let len = data.len();

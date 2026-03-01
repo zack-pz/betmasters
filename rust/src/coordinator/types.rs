@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum CoordinatorCommand {
-    Welcome(String),
     Wait,
     Compute {
         task_id: u32,
@@ -16,7 +15,7 @@ pub enum CoordinatorCommand {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum WorkerMessage {
-    Hello(String),
+    Hello,
     ComputeResult {
         task_id: u32,
         data: Vec<u32>,
@@ -32,16 +31,15 @@ pub(crate) struct Task {
 
 pub enum InternalMessage {
     WorkerConnected {
-        worker_id: String,
         tx: mpsc::UnboundedSender<CoordinatorCommand>,
+        alias_tx: oneshot::Sender<String>,
     },
     WorkerDisconnected {
-        worker_id: String,
+        alias: String,
     },
     WorkerFinished {
         task_id: u32,
-        worker_id: String,
+        alias: String,
         data: Vec<u32>,
     },
-    StartExecution,
 }

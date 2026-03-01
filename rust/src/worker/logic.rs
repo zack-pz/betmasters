@@ -21,15 +21,13 @@ impl Worker {
 
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         let ws_url = build_ws_url(&self.coordinator_url);
-        let hostname = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
-        let worker_id = format!("worker-{}-{}", hostname, std::process::id());
-        println!("Worker '{}' starting, connecting to {}", worker_id, ws_url);
+        println!("Worker starting, connecting to {}", ws_url);
 
         loop {
             match connect_async(&ws_url).await {
                 Ok((stream, _)) => {
                     println!("Connected to coordinator.");
-                    self.run_session(stream, &worker_id).await;
+                    self.run_session(stream).await;
                 }
                 Err(e) => eprintln!("Connection error: {}. Retrying...", e),
             }
@@ -37,8 +35,8 @@ impl Worker {
         }
     }
 
-    async fn run_session(&self, mut stream: WsStream, worker_id: &str) {
-        if send_hello(&mut stream, worker_id).await.is_err() {
+    async fn run_session(&self, mut stream: WsStream) {
+        if send_hello(&mut stream).await.is_err() {
             eprintln!("Failed to send Hello.");
             return;
         }
@@ -74,10 +72,6 @@ impl Worker {
                 let json = serde_json::to_string(&result).map_err(|_| ())?;
                 stream.send(Message::Text(json.into())).await.map_err(|_| ())
             }
-            Ok(CoordinatorCommand::Welcome(msg)) => {
-                println!("Coordinator: {}", msg);
-                Ok(())
-            }
             Ok(CoordinatorCommand::Wait) => Ok(()),
             Err(e) => {
                 eprintln!("Failed to parse command: {}", e);
@@ -94,8 +88,8 @@ fn build_ws_url(coordinator_url: &str) -> String {
     format!("{}/ws", url)
 }
 
-async fn send_hello(stream: &mut WsStream, worker_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let hello = serde_json::to_string(&WorkerMessage::Hello(worker_id.to_string()))?;
+async fn send_hello(stream: &mut WsStream) -> Result<(), Box<dyn std::error::Error>> {
+    let hello = serde_json::to_string(&WorkerMessage::Hello)?;
     stream.send(Message::Text(hello.into())).await?;
     Ok(())
 }
