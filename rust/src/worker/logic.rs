@@ -21,7 +21,8 @@ impl Worker {
 
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         let ws_url = build_ws_url(&self.coordinator_url);
-        let worker_id = format!("worker-{}", std::process::id());
+        let hostname = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
+        let worker_id = format!("worker-{}-{}", hostname, std::process::id());
         println!("Worker '{}' starting, connecting to {}", worker_id, ws_url);
 
         loop {

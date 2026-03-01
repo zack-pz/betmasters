@@ -15,19 +15,22 @@ pub struct Coordinator {
     height: u32,
     tasks: VecDeque<Task>,
     assigned_tasks: HashMap<u32, (Task, Instant)>,
-    // worker_id -> task_id asignado actualmente
+    // alias -> task_id asignado actualmente
     worker_tasks: HashMap<String, u32>,
-    // worker_id -> canal para enviarle comandos
+    // alias -> canal para enviarle comandos
     connected_workers: HashMap<String, mpsc::UnboundedSender<CoordinatorCommand>>,
     // workers disponibles sin tarea
     idle_workers: VecDeque<String>,
+    // original_id (del Hello) -> alias secuencial (worker-1, worker-2, ...)
+    worker_aliases: HashMap<String, String>,
     started: bool,
     workers_count: usize,
+    next_worker_num: usize,
 }
 
 impl Coordinator {
     pub fn new(width: u32, height: u32) -> Self {
-        let block_size = 10;
+        let block_size = 100;
         let mut tasks = VecDeque::new();
         let mut task_id = 0;
 
@@ -46,18 +49,20 @@ impl Coordinator {
             worker_tasks: HashMap::new(),
             connected_workers: HashMap::new(),
             idle_workers: VecDeque::new(),
+            worker_aliases: HashMap::new(),
             started: false,
             workers_count: 0,
+            next_worker_num: 0,
         }
     }
 
     /// Asigna tareas pendientes a workers libres (push-based).
     fn assign_tasks_to_idle_workers(&mut self) {
         while !self.idle_workers.is_empty() && !self.tasks.is_empty() {
-            let worker_id = self.idle_workers.pop_front().unwrap();
+            let alias = self.idle_workers.pop_front().unwrap();
             let task = self.tasks.pop_front().unwrap();
 
-            let sent = if let Some(tx) = self.connected_workers.get(&worker_id) {
+            let sent = if let Some(tx) = self.connected_workers.get(&alias) {
                 let cmd = CoordinatorCommand::Compute {
                     task_id: task.id,
                     width: self.width,
@@ -73,13 +78,13 @@ impl Coordinator {
             if sent {
                 info!(
                     "Task {} (rows {}-{}) → worker {}",
-                    task.id, task.start_row, task.end_row, worker_id
+                    task.id, task.start_row, task.end_row, alias
                 );
-                self.worker_tasks.insert(worker_id, task.id);
+                self.worker_tasks.insert(alias, task.id);
                 self.assigned_tasks.insert(task.id, (task, Instant::now()));
             } else {
                 // Canal cerrado: descartamos el worker y devolvemos la tarea
-                self.connected_workers.remove(&worker_id);
+                self.connected_workers.remove(&alias);
                 self.tasks.push_front(task);
             }
         }
@@ -125,33 +130,38 @@ impl Coordinator {
             }
 
             InternalMessage::WorkerConnected { worker_id, tx: worker_tx } => {
+                self.next_worker_num += 1;
                 self.workers_count += 1;
-                info!("Worker '{}' connected (total: {})", worker_id, self.workers_count);
-                self.connected_workers.insert(worker_id.clone(), worker_tx);
-                self.idle_workers.push_back(worker_id);
+                let alias = format!("worker-{}", self.next_worker_num);
+                self.worker_aliases.insert(worker_id, alias.clone());
+                info!("Worker '{}' connected (total: {})", alias, self.workers_count);
+                self.connected_workers.insert(alias.clone(), worker_tx);
+                self.idle_workers.push_back(alias);
                 if self.started {
                     self.assign_tasks_to_idle_workers();
                 }
             }
 
             InternalMessage::WorkerDisconnected { worker_id } => {
+                let alias = self.worker_aliases.remove(&worker_id).unwrap_or(worker_id);
                 self.workers_count = self.workers_count.saturating_sub(1);
-                warn!("Worker '{}' disconnected (total: {})", worker_id, self.workers_count);
-                self.connected_workers.remove(&worker_id);
-                self.idle_workers.retain(|id| id != &worker_id);
+                warn!("Worker '{}' disconnected (total: {})", alias, self.workers_count);
+                self.connected_workers.remove(&alias);
+                self.idle_workers.retain(|id| id != &alias);
 
-                if let Some(task_id) = self.worker_tasks.remove(&worker_id) {
+                if let Some(task_id) = self.worker_tasks.remove(&alias) {
                     if let Some((task, _)) = self.assigned_tasks.remove(&task_id) {
-                        warn!("Re-queuing task {} from disconnected worker '{}'", task_id, worker_id);
+                        warn!("Re-queuing task {} from disconnected worker '{}'", task_id, alias);
                         self.tasks.push_back(task);
                     }
                 }
             }
 
             InternalMessage::WorkerFinished { task_id, worker_id, data } => {
+                let alias = self.worker_aliases.get(&worker_id).cloned().unwrap_or(worker_id);
                 if let Some((task, _)) = self.assigned_tasks.remove(&task_id) {
-                    info!("Task {} done by worker '{}'. Merging data...", task_id, worker_id);
-                    self.worker_tasks.remove(&worker_id);
+                    info!("Task {} done by worker '{}'. Merging data...", task_id, alias);
+                    self.worker_tasks.remove(&alias);
 
                     let start_idx = (task.start_row * self.width) as usize;
                     let len = data.len();
@@ -164,7 +174,7 @@ impl Coordinator {
                     if self.tasks.is_empty() && self.assigned_tasks.is_empty() {
                         info!("All tasks completed!");
                     } else {
-                        self.idle_workers.push_back(worker_id);
+                        self.idle_workers.push_back(alias);
                         self.assign_tasks_to_idle_workers();
                     }
                 } else {
