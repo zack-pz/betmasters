@@ -13,6 +13,7 @@ pub struct Coordinator {
     pub storage: Vec<u32>,
     width: u32,
     height: u32,
+    max_iters: u32,
     tasks: VecDeque<Task>,
     assigned_tasks: HashMap<u32, (Task, Instant)>,
     // alias -> task_id asignado actualmente
@@ -44,6 +45,7 @@ impl Coordinator {
             storage: vec![0; (width * height) as usize],
             width,
             height,
+            max_iters: 1000,
             tasks,
             assigned_tasks: HashMap::new(),
             worker_tasks: HashMap::new(),
@@ -173,6 +175,7 @@ impl Coordinator {
 
                     if self.tasks.is_empty() && self.assigned_tasks.is_empty() {
                         info!("All tasks completed!");
+                        self.save_image();
                     } else {
                         self.idle_workers.push_back(alias);
                         self.assign_tasks_to_idle_workers();
@@ -181,6 +184,21 @@ impl Coordinator {
                     warn!("Received result for unknown task {}.", task_id);
                 }
             }
+        }
+    }
+
+    /// Convierte los datos de iteraciones almacenados en una imagen PNG y la guarda en disco.
+    fn save_image(&self) {
+        let path = std::env::var("OUTPUT_FILE").unwrap_or_else(|_| "fractal.png".to_string());
+
+        let img = image::ImageBuffer::from_fn(self.width, self.height, |x, y| {
+            let idx = (y * self.width + x) as usize;
+            iter_to_color(self.storage[idx], self.max_iters)
+        });
+
+        match img.save(&path) {
+            Ok(_) => info!("Fractal image saved to '{}'", path),
+            Err(e) => error!("Failed to save fractal image: {}", e),
         }
     }
 
@@ -255,4 +273,17 @@ impl Coordinator {
             }
         }
     }
+}
+
+/// Mapea un conteo de iteraciones a un color RGB usando polinomios de Bernstein.
+/// Puntos dentro del conjunto (iter == max_iters) se pintan de negro.
+fn iter_to_color(iter: u32, max_iters: u32) -> image::Rgb<u8> {
+    if iter == max_iters {
+        return image::Rgb([0, 0, 0]);
+    }
+    let t = iter as f64 / max_iters as f64;
+    let r = (9.0 * (1.0 - t) * t * t * t * 255.0) as u8;
+    let g = (15.0 * (1.0 - t) * (1.0 - t) * t * t * 255.0) as u8;
+    let b = (8.5 * (1.0 - t) * (1.0 - t) * (1.0 - t) * t * 255.0) as u8;
+    image::Rgb([r, g, b])
 }

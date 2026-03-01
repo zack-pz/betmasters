@@ -45,7 +45,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     } else {
         let port = port_env.unwrap_or(8080);
-        let coordinator = Coordinator::new(100, 100);
+        let coordinator = Coordinator::new(3840, 2160);
         if let Err(e) = coordinator.run(&bind_addr, port).await {
             eprintln!("Coordinator error: {}", e);
         }
