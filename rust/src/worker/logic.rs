@@ -1,6 +1,7 @@
 use crate::coordinator::types::{CoordinatorCommand, WorkerMessage};
 use crate::worker::types::Worker;
 use futures_util::{SinkExt, StreamExt};
+use log::{error, info};
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
@@ -21,15 +22,15 @@ impl Worker {
 
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         let ws_url = build_ws_url(&self.coordinator_url);
-        println!("Worker starting, connecting to {}", ws_url);
+        info!("Worker starting, connecting to {}", ws_url);
 
         loop {
             match connect_async(&ws_url).await {
                 Ok((stream, _)) => {
-                    println!("Connected to coordinator.");
+                    info!("Connected to coordinator.");
                     self.run_session(stream).await;
                 }
-                Err(e) => eprintln!("Connection error: {}. Retrying...", e),
+                Err(e) => error!("Connection error: {}. Retrying...", e),
             }
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
@@ -37,7 +38,7 @@ impl Worker {
 
     async fn run_session(&self, mut stream: WsStream) {
         if send_hello(&mut stream).await.is_err() {
-            eprintln!("Failed to send Hello.");
+            error!("Failed to send Hello.");
             return;
         }
 
@@ -49,11 +50,11 @@ impl Worker {
                     }
                 }
                 Some(Ok(Message::Close(_))) => {
-                    println!("Coordinator closed connection.");
+                    info!("Coordinator closed connection.");
                     break;
                 }
                 Some(Err(e)) => {
-                    eprintln!("WebSocket error: {}", e);
+                    error!("WebSocket error: {}", e);
                     break;
                 }
                 None => break,
@@ -61,7 +62,7 @@ impl Worker {
             }
         }
 
-        eprintln!("Disconnected. Reconnecting...");
+        info!("Disconnected. Reconnecting...");
     }
 
     async fn handle_command(&self, stream: &mut WsStream, text: &str) -> Result<(), ()> {
@@ -74,7 +75,7 @@ impl Worker {
             }
             Ok(CoordinatorCommand::Wait) => Ok(()),
             Err(e) => {
-                eprintln!("Failed to parse command: {}", e);
+                error!("Failed to parse command: {}", e);
                 Ok(())
             }
         }

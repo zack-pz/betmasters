@@ -3,6 +3,7 @@ mod logger;
 mod worker;
 
 use coordinator::Coordinator;
+use log::error;
 use std::env;
 use std::process::ExitCode;
 use worker::Worker;
@@ -24,7 +25,7 @@ async fn main() -> ExitCode {
                 current = cause.source();
             }
 
-            eprintln!("Error: {}", err);
+            error!("Error: {}", err);
             ExitCode::from(2)
         }
     }
@@ -41,13 +42,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     if role == "worker" {
         let worker = Worker::new(coordinator_url);
         if let Err(e) = worker.run().await {
-            eprintln!("Worker error: {}", e);
+            error!("Worker error: {}", e);
         }
     } else {
         let port = port_env.unwrap_or(8080);
         let coordinator = Coordinator::new(3840, 2160);
         if let Err(e) = coordinator.run(&bind_addr, port).await {
-            eprintln!("Coordinator error: {}", e);
+            error!("Coordinator error: {}", e);
         }
     }
 
