@@ -4,6 +4,7 @@ use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+use tokio::task::spawn_blocking;
 use tokio::time::interval;
 
 use crate::coordinator::handlers::{root_hello, ws_handler};
@@ -163,7 +164,13 @@ impl Coordinator {
 
                     if self.tasks.is_empty() && self.assigned_tasks.is_empty() {
                         info!("All tasks completed!");
-                        self.save_image();
+                        let storage = self.storage.clone();
+                        let width = self.width;
+                        let height = self.height;
+                        let max_iters = self.max_iters;
+                        spawn_blocking(move || {
+                            save_image_impl(width, height, max_iters, storage);
+                        });
                     } else {
                         self.idle_workers.push_back(alias);
                         self.assign_tasks_to_idle_workers();
@@ -175,20 +182,6 @@ impl Coordinator {
         }
     }
 
-    /// Convierte los datos de iteraciones almacenados en una imagen PNG y la guarda en disco.
-    fn save_image(&self) {
-        let path = std::env::var("OUTPUT_FILE").unwrap_or_else(|_| "fractal.png".to_string());
-
-        let img = image::ImageBuffer::from_fn(self.width, self.height, |x, y| {
-            let idx = (y * self.width + x) as usize;
-            iter_to_color(self.storage[idx], self.max_iters)
-        });
-
-        match img.save(&path) {
-            Ok(_) => info!("Fractal image saved to '{}'", path),
-            Err(e) => error!("Failed to save fractal image: {}", e),
-        }
-    }
 
     /// Inicia el servidor HTTP y listener para conexiones de workers.
     async fn start_server(&self, bind_addr: &str, port: u16, tx: &mpsc::Sender<InternalMessage>) -> Result<(), Box<dyn std::error::Error>> {
@@ -274,4 +267,21 @@ fn iter_to_color(iter: u32, max_iters: u32) -> image::Rgb<u8> {
     let g = (15.0 * (1.0 - t) * (1.0 - t) * t * t * 255.0) as u8;
     let b = (8.5 * (1.0 - t) * (1.0 - t) * (1.0 - t) * t * 255.0) as u8;
     image::Rgb([r, g, b])
+}
+
+/// Convierte los datos de iteraciones almacenados en una imagen PNG y la guarda en disco.
+/// Esta función está diseñada para ejecutarse en un thread pool separado via spawn_blocking()
+/// para no bloquear el Tokio event loop durante operaciones CPU/IO intensivas.
+fn save_image_impl(width: u32, height: u32, max_iters: u32, storage: Vec<u32>) {
+    let path = std::env::var("OUTPUT_FILE").unwrap_or_else(|_| "fractal.png".to_string());
+
+    let img = image::ImageBuffer::from_fn(width, height, |x, y| {
+        let idx = (y * width + x) as usize;
+        iter_to_color(storage[idx], max_iters)
+    });
+
+    match img.save(&path) {
+        Ok(_) => info!("Fractal image saved to '{}'", path),
+        Err(e) => error!("Failed to save fractal image: {}", e),
+    }
 }
