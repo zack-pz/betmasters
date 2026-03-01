@@ -32,12 +32,10 @@ impl Coordinator {
     pub fn new(width: u32, height: u32) -> Self {
         let block_size = 100;
         let mut tasks = VecDeque::new();
-        let mut task_id = 0;
 
-        for start_row in (0..height).step_by(block_size as usize) {
+        for (task_id, start_row) in (0..height).step_by(block_size as usize).enumerate() {
             let end_row = (start_row + block_size).min(height);
-            tasks.push_back(Task { id: task_id, start_row, end_row });
-            task_id += 1;
+            tasks.push_back(Task { id: task_id as u32, start_row, end_row });
         }
 
         Self {
@@ -228,16 +226,15 @@ impl Coordinator {
                     self.check_and_requeue_timed_out_tasks(Instant::now());
 
                     // Auto-start if 10 seconds pass without new worker connections
-                    if !self.started {
-                        if Instant::now().duration_since(last_worker_connection) >= worker_registration_timeout {
-                            self.started = true;
-                            info!(
-                                "--- STARTING EXECUTION (auto-start timeout) --- ({} workers connected)",
-                                self.workers_count
-                            );
-                            self.assign_tasks_to_idle_workers();
-                            last_worker_connection = Instant::now();
-                        }
+                    if !self.started
+                        && Instant::now().duration_since(last_worker_connection) >= worker_registration_timeout {
+                        self.started = true;
+                        info!(
+                            "--- STARTING EXECUTION (auto-start timeout) --- ({} workers connected)",
+                            self.workers_count
+                        );
+                        self.assign_tasks_to_idle_workers();
+                        last_worker_connection = Instant::now();
                     }
                 }
 

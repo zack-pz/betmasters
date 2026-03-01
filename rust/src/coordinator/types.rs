@@ -29,6 +29,7 @@ pub(crate) struct Task {
     pub end_row: u32,
 }
 
+#[allow(clippy::enum_variant_names)]
 pub enum InternalMessage {
     WorkerConnected {
         tx: mpsc::UnboundedSender<CoordinatorCommand>,
