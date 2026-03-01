@@ -1,8 +1,14 @@
 use axum::{
-    extract::{ws::{Message, WebSocket}, State, WebSocketUpgrade},
+    extract::{
+        ws::{Message, WebSocket},
+        State, WebSocketUpgrade,
+    },
     response::Response,
 };
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{
+    stream::{SplitSink, SplitStream},
+    SinkExt, StreamExt,
+};
 use tokio::sync::mpsc;
 
 use crate::coordinator::types::{CoordinatorCommand, InternalMessage, WorkerMessage};
@@ -19,61 +25,69 @@ pub async fn ws_handler(
 }
 
 async fn handle_socket(socket: WebSocket, tx: mpsc::Sender<InternalMessage>) {
-    let (mut sender, mut receiver) = socket.split();
-    let (worker_cmd_tx, mut worker_cmd_rx) = mpsc::unbounded_channel::<CoordinatorCommand>();
+    let (sender, mut receiver) = socket.split();
 
-    // El primer mensaje debe ser Hello con el ID del worker
-    let worker_id = match receiver.next().await {
-        Some(Ok(Message::Text(text))) => {
-            match serde_json::from_str::<WorkerMessage>(&text) {
-                Ok(WorkerMessage::Hello(id)) => {
-                    let _ = tx
-                        .send(InternalMessage::WorkerConnected {
-                            worker_id: id.clone(),
-                            tx: worker_cmd_tx,
-                        })
-                        .await;
-                    id
-                }
-                _ => return,
-            }
-        }
-        _ => return,
+    let Some((worker_id, cmd_rx)) = register_worker(&mut receiver, &tx).await else {
+        return;
     };
 
-    // Tarea para reenviar comandos del coordinator al worker via WS
-    let send_task = tokio::spawn(async move {
-        while let Some(cmd) = worker_cmd_rx.recv().await {
-            let text = match serde_json::to_string(&cmd) {
-                Ok(t) => t,
-                Err(_) => break,
-            };
-            if sender.send(Message::Text(text.into())).await.is_err() {
-                break;
-            }
-        }
-    });
+    let send_task = tokio::spawn(forward_commands(sender, cmd_rx));
+    receive_results(&mut receiver, &tx, &worker_id).await;
 
-    // Recibir resultados del worker
+    let _ = tx.send(InternalMessage::WorkerDisconnected { worker_id }).await;
+    send_task.abort();
+}
+
+async fn register_worker(
+    receiver: &mut SplitStream<WebSocket>,
+    tx: &mpsc::Sender<InternalMessage>,
+) -> Option<(String, mpsc::UnboundedReceiver<CoordinatorCommand>)> {
+    let text = match receiver.next().await {
+        Some(Ok(Message::Text(t))) => t,
+        _ => return None,
+    };
+
+    let WorkerMessage::Hello(worker_id) = serde_json::from_str(&text).ok()? else {
+        return None;
+    };
+
+    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+    tx.send(InternalMessage::WorkerConnected {
+        worker_id: worker_id.clone(),
+        tx: cmd_tx,
+    })
+    .await
+    .ok()?;
+
+    Some((worker_id, cmd_rx))
+}
+
+async fn forward_commands(
+    mut sender: SplitSink<WebSocket, Message>,
+    mut cmd_rx: mpsc::UnboundedReceiver<CoordinatorCommand>,
+) {
+    while let Some(cmd) = cmd_rx.recv().await {
+        let Ok(text) = serde_json::to_string(&cmd) else { break };
+        if sender.send(Message::Text(text.into())).await.is_err() {
+            break;
+        }
+    }
+}
+
+async fn receive_results(
+    receiver: &mut SplitStream<WebSocket>,
+    tx: &mpsc::Sender<InternalMessage>,
+    worker_id: &str,
+) {
     while let Some(Ok(Message::Text(text))) = receiver.next().await {
-        if let Ok(WorkerMessage::ComputeResult { task_id, data }) =
-            serde_json::from_str::<WorkerMessage>(&text)
-        {
+        if let Ok(WorkerMessage::ComputeResult { task_id, data }) = serde_json::from_str(&text) {
             let _ = tx
                 .send(InternalMessage::WorkerFinished {
                     task_id,
-                    worker_id: worker_id.clone(),
+                    worker_id: worker_id.to_string(),
                     data,
                 })
                 .await;
         }
     }
-
-    // Worker desconectado
-    let _ = tx
-        .send(InternalMessage::WorkerDisconnected {
-            worker_id,
-        })
-        .await;
-    send_task.abort();
 }
