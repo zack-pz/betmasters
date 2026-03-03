@@ -2,35 +2,11 @@ mod coordinator;
 mod logger;
 mod worker;
 
-use clap::Parser;
 use coordinator::Coordinator;
+use log::error;
+use std::env;
 use std::process::ExitCode;
-use tokio::signal;
 use worker::Worker;
-
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Args {
-    /// Run as coordinator
-    #[arg(short = 'c', long)]
-    coordinator: bool,
-
-    /// Run as worker
-    #[arg(short = 'w', long)]
-    worker: bool,
-
-    /// Coordinator URL (for workers)
-    #[arg(short = 'u', long, env = "COORDINATOR_URL", default_value = "http://127.0.0.1:8080")]
-    coordinator_url: String,
-
-    /// IP address to bind to
-    #[arg(short = 'b', long, env = "BIND_ADDR", default_value = "0.0.0.0")]
-    bind: String,
-
-    /// Port to listen on
-    #[arg(short = 'p', long, env = "PORT")]
-    port: Option<u16>,
-}
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -49,37 +25,46 @@ async fn main() -> ExitCode {
                 current = cause.source();
             }
 
-            eprintln!("Error: {}", err);
+            error!("Error: {}", err);
             ExitCode::from(2)
         }
     }
 }
 
+fn env_string(key: &str, default: &str) -> String {
+    env::var(key).unwrap_or_else(|_| default.to_string())
+}
+
+fn parse_env<T: std::str::FromStr>(key: &str, default: T) -> T {
+    env::var(key).ok().and_then(|s| s.parse().ok()).unwrap_or(default)
+}
+
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let args = Args::parse();
+    let role = env_string("APP_ROLE", "coordinator");
+    let bind_addr = env_string("BIND_ADDR", "0.0.0.0");
+    let port = parse_env("PORT", 8080u16);
+    let coordinator_url = env_string("COORDINATOR_URL", "http://127.0.0.1:8080");
 
-    let task = async move {
-        if args.worker {
-            let port = args.port.unwrap_or(8081);
-            let worker = Worker::<f64>::new(args.coordinator_url);
-            if let Err(e) = worker.run(&args.bind, port).await {
-                eprintln!("Worker error: {}", e);
-            }
-        } else {
-            // Default to coordinator if --worker is not specified, 
-            // even if --coordinator is not explicitly passed.
-            let port = args.port.unwrap_or(8080);
-            let coordinator = Coordinator::new(100, 100);
-            if let Err(e) = coordinator.run(&args.bind, port).await {
-                eprintln!("Coordinator error: {}", e);
-            }
+    if role == "worker" {
+        let max_iters = parse_env("MAX_ITERS", 1000usize);
+        let x_min = parse_env("X_MIN", -2.0f64);
+        let x_max = parse_env("X_MAX", 1.0f64);
+        let y_min = parse_env("Y_MIN", -1.5f64);
+        let y_max = parse_env("Y_MAX", 1.5f64);
+
+        let worker = Worker::new(coordinator_url, max_iters, x_min, x_max, y_min, y_max);
+        if let Err(e) = worker.run().await {
+            error!("Worker error: {}", e);
         }
-    };
+    } else {
+        let width = parse_env("IMAGE_WIDTH", 3840u32);
+        let height = parse_env("IMAGE_HEIGHT", 2160u32);
+        let block_size = parse_env("BLOCK_SIZE", 100u32);
+        let max_iters = parse_env("MAX_ITERS", 1000u32);
 
-    tokio::select! {
-        _ = task => {}
-        _ = signal::ctrl_c() => {
-            println!("\nShutting down gracefully...");
+        let coordinator = Coordinator::new(width, height, block_size, max_iters);
+        if let Err(e) = coordinator.run(&bind_addr, port).await {
+            error!("Coordinator error: {}", e);
         }
     }
 
