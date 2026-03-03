@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
-use tokio::sync::oneshot;
+use std::time::Instant;
+use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum CoordinatorCommand {
-    Welcome(String),
     Wait,
     Compute {
         task_id: u32,
@@ -16,10 +16,10 @@ pub enum CoordinatorCommand {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum WorkerMessage {
-    Hello(String),
+    Hello,
     ComputeResult {
         task_id: u32,
-        data: Vec<Vec<f64>>,
+        data: Vec<u32>,
     },
 }
 
@@ -30,12 +30,27 @@ pub(crate) struct Task {
     pub end_row: u32,
 }
 
+/// Estado completo de un worker conectado. Fuente de verdad única para toda
+/// la información asociada a un worker — canal de comandos, tarea actual y timestamp.
+#[derive(Debug)]
+pub struct WorkerState {
+    pub tx: mpsc::UnboundedSender<CoordinatorCommand>,
+    pub current_task_id: Option<u32>,
+    pub assigned_at: Option<Instant>,
+}
+
+#[allow(clippy::enum_variant_names)]
 pub enum InternalMessage {
-    GetTask(oneshot::Sender<Option<CoordinatorCommand>>),
-    WorkerSaidHello(String),
+    WorkerConnected {
+        tx: mpsc::UnboundedSender<CoordinatorCommand>,
+        alias_tx: oneshot::Sender<String>,
+    },
+    WorkerDisconnected {
+        alias: String,
+    },
     WorkerFinished {
         task_id: u32,
-        data: Vec<Vec<f64>>,
+        alias: String,
+        data: Vec<u32>,
     },
-    StartExecution,
 }
