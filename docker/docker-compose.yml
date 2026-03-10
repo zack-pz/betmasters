@@ -18,7 +18,7 @@ services:
     environment:
       - APP_ROLE=worker
       - PORT=8081
-      - COORDINATOR_URL=http://coordinator:8080
+      - COORDINATOR_URL=${COORDINATOR_URL:-http://coordinator:8080}
       - MAX_ITERS=${MAX_ITERS}
       - X_MIN=${X_MIN}
       - X_MAX=${X_MAX}
@@ -26,15 +26,13 @@ services:
       - Y_MAX=${Y_MAX}
     ports:
       - "8081:8081"
-    depends_on:
-      - coordinator
 
   worker-2:
     build: ../rust/.
     environment:
       - APP_ROLE=worker
       - PORT=8082
-      - COORDINATOR_URL=http://coordinator:8080
+      - COORDINATOR_URL=${COORDINATOR_URL:-http://coordinator:8080}
       - MAX_ITERS=${MAX_ITERS}
       - X_MIN=${X_MIN}
       - X_MAX=${X_MAX}
@@ -42,15 +40,13 @@ services:
       - Y_MAX=${Y_MAX}
     ports:
       - "8082:8082"
-    depends_on:
-      - coordinator
 
   worker-3:
     build: ../rust/.
     environment:
       - APP_ROLE=worker
       - PORT=8083
-      - COORDINATOR_URL=http://coordinator:8080
+      - COORDINATOR_URL=${COORDINATOR_URL:-http://coordinator:8080}
       - MAX_ITERS=${MAX_ITERS}
       - X_MIN=${X_MIN}
       - X_MAX=${X_MAX}
@@ -58,15 +54,13 @@ services:
       - Y_MAX=${Y_MAX}
     ports:
       - "8083:8083"
-    depends_on:
-      - coordinator
 
   worker-4:
     build: ../rust/.
     environment:
       - APP_ROLE=worker
       - PORT=8084
-      - COORDINATOR_URL=http://coordinator:8080
+      - COORDINATOR_URL=${COORDINATOR_URL:-http://coordinator:8080}
       - MAX_ITERS=${MAX_ITERS}
       - X_MIN=${X_MIN}
       - X_MAX=${X_MAX}
@@ -74,15 +68,13 @@ services:
       - Y_MAX=${Y_MAX}
     ports:
       - "8084:8084"
-    depends_on:
-      - coordinator
 
   worker-5:
     build: ../rust/.
     environment:
       - APP_ROLE=worker
       - PORT=8085
-      - COORDINATOR_URL=http://coordinator:8080
+      - COORDINATOR_URL=${COORDINATOR_URL:-http://coordinator:8080}
       - MAX_ITERS=${MAX_ITERS}
       - X_MIN=${X_MIN}
       - X_MAX=${X_MAX}
@@ -90,15 +82,13 @@ services:
       - Y_MAX=${Y_MAX}
     ports:
       - "8085:8085"
-    depends_on:
-      - coordinator
 
   worker-6:
     build: ../rust/.
     environment:
       - APP_ROLE=worker
       - PORT=8086
-      - COORDINATOR_URL=http://coordinator:8080
+      - COORDINATOR_URL=${COORDINATOR_URL:-http://coordinator:8080}
       - MAX_ITERS=${MAX_ITERS}
       - X_MIN=${X_MIN}
       - X_MAX=${X_MAX}
@@ -106,15 +96,13 @@ services:
       - Y_MAX=${Y_MAX}
     ports:
       - "8086:8086"
-    depends_on:
-      - coordinator
 
   worker-7:
     build: ../rust/.
     environment:
       - APP_ROLE=worker
       - PORT=8087
-      - COORDINATOR_URL=http://coordinator:8080
+      - COORDINATOR_URL=${COORDINATOR_URL:-http://coordinator:8080}
       - MAX_ITERS=${MAX_ITERS}
       - X_MIN=${X_MIN}
       - X_MAX=${X_MAX}
@@ -122,15 +110,13 @@ services:
       - Y_MAX=${Y_MAX}
     ports:
       - "8087:8087"
-    depends_on:
-      - coordinator
 
   worker-8:
     build: ../rust/.
     environment:
       - APP_ROLE=worker
       - PORT=8088
-      - COORDINATOR_URL=http://coordinator:8080
+      - COORDINATOR_URL=${COORDINATOR_URL:-http://coordinator:8080}
       - MAX_ITERS=${MAX_ITERS}
       - X_MIN=${X_MIN}
       - X_MAX=${X_MAX}
@@ -138,15 +124,13 @@ services:
       - Y_MAX=${Y_MAX}
     ports:
       - "8088:8088"
-    depends_on:
-      - coordinator
 
   worker-9:
     build: ../rust/.
     environment:
       - APP_ROLE=worker
       - PORT=8089
-      - COORDINATOR_URL=http://coordinator:8080
+      - COORDINATOR_URL=${COORDINATOR_URL:-http://coordinator:8080}
       - MAX_ITERS=${MAX_ITERS}
       - X_MIN=${X_MIN}
       - X_MAX=${X_MAX}
@@ -154,5 +138,3 @@ services:
       - Y_MAX=${Y_MAX}
     ports:
       - "8089:8089"
-    depends_on:
-      - coordinator
