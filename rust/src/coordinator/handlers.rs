@@ -9,6 +9,7 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
+use log::{error, warn};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::coordinator::types::{CoordinatorCommand, InternalMessage, WorkerMessage};
@@ -44,10 +45,29 @@ async fn register_worker(
 ) -> Option<(String, mpsc::UnboundedReceiver<CoordinatorCommand>)> {
     let text = match receiver.next().await {
         Some(Ok(Message::Text(t))) => t,
-        _ => return None,
+        Some(Ok(other)) => {
+            warn!("register_worker: expected Text, got {:?}", other);
+            return None;
+        }
+        Some(Err(e)) => {
+            error!("register_worker: WebSocket error before Hello: {}", e);
+            return None;
+        }
+        None => {
+            warn!("register_worker: stream closed before Hello");
+            return None;
+        }
     };
 
-    let WorkerMessage::Hello = serde_json::from_str(&text).ok()? else {
+    let parsed = match serde_json::from_str::<WorkerMessage>(&text) {
+        Ok(msg) => msg,
+        Err(e) => {
+            error!("register_worker: failed to parse Hello: {} (raw: {:?})", e, text);
+            return None;
+        }
+    };
+    let WorkerMessage::Hello = parsed else {
+        warn!("register_worker: expected Hello, got something else");
         return None;
     };
 
