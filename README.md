@@ -34,22 +34,22 @@ The project runs on a **Hub-and-Spoke** WireGuard topology:
 ```
                     ┌─────────────────────────────┐
                     │       WireGuard VPN          │
-                    │         10.0.0.0/24          │
+                    │         10.10.10.0/24          │
                     │                              │
         ┌───────────┤  Hub: Coordinator            │
-        │           │  10.0.0.1 (Ubuntu server)    │
+        │           │  10.10.10.1 (Ubuntu server)    │
         │           └──────────────────────────────┘
         │                        │
    wg tunnel                wg tunnel
         │                        │
    ┌────┴────┐             ┌──────┴────┐
    │ Worker  │             │  Worker   │
-   │10.0.0.2 │             │ 10.0.0.3  │
+   │10.10.10.2 │             │ 10.10.10.3 │
    │ Laptop  │             │ AWS EC2   │
    └─────────┘             └───────────┘
 ```
 
-- The **coordinator** runs on the Hub node, which has a fixed VPN IP (e.g., `10.0.0.1`) and a public UDP port open for WireGuard (`51820`).
+- The **coordinator** runs on the Hub node, which has a fixed VPN IP (e.g., `10.10.10.1`) and a public UDP port open for WireGuard (`51820`).
 - **Workers** are Spokes that connect to the VPN from any device. Once connected, they reach the coordinator at its VPN IP — regardless of physical location or network.
 - All traffic is encrypted end-to-end by WireGuard. Workers do not need public IPs or open inbound ports.
 
@@ -302,7 +302,7 @@ cargo run
 ```bash
 APP_ROLE=worker \
 PORT=8081 \
-COORDINATOR_URL=http://10.0.0.1:8080 \
+COORDINATOR_URL=http://10.10.10.1:8080 \
 MAX_ITERS=1000 \
 X_MIN=-2.0 \
 X_MAX=1.0 \
@@ -311,7 +311,7 @@ Y_MAX=1.5 \
 cargo run
 ```
 
-Replace `10.0.0.1` with the coordinator's WireGuard VPN IP. Workers will automatically reconnect if the connection drops.
+Replace `10.10.10.1` with the coordinator's WireGuard VPN IP. Workers will automatically reconnect if the connection drops.
 
 ### Environment Variables
 
@@ -328,15 +328,6 @@ Replace `10.0.0.1` with the coordinator's WireGuard VPN IP. Workers will automat
 | `Y_MIN` / `Y_MAX` | worker | `-1.5` / `1.5` | Complex plane vertical bounds |
 | `OUTPUT_FILE` | coordinator | `fractal.png` | Output PNG file path |
 | `BIND_ADDR` | coordinator | `0.0.0.0` | Bind address for the HTTP server |
-
-### Run Tests
-
-```bash
-cargo test
-
-# Run a single test
-cargo test <test_name>
-```
 
 ---
 
