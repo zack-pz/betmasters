@@ -2,7 +2,7 @@ use crate::coordinator::types::{CoordinatorCommand, WorkerMessage};
 use crate::worker::types::Worker;
 use futures_util::{SinkExt, StreamExt};
 use log::{error, info};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
@@ -68,7 +68,11 @@ impl Worker {
     async fn handle_command(&self, stream: &mut WsStream, text: &str) -> Result<(), ()> {
         match serde_json::from_str::<CoordinatorCommand>(text) {
             Ok(CoordinatorCommand::Compute { task_id, width, height, start_row, end_row }) => {
+                info!("Task {} assigned (rows {}-{}).", task_id, start_row, end_row);
+                let start = Instant::now();
                 let data = self.compute_block(width, height, start_row, end_row);
+                let elapsed = start.elapsed().as_secs_f64();
+                info!("Task {} completed in {:.2}s.", task_id, elapsed);
                 let result = WorkerMessage::ComputeResult { task_id, data };
                 let json = serde_json::to_string(&result).map_err(|_| ())?;
                 stream.send(Message::Text(json.into())).await.map_err(|_| ())
